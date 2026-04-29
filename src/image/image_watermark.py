@@ -462,6 +462,12 @@ class JPEGHandler(BaseHandler):
             bit_idx = 0
             
             # 在8×8块中嵌入
+            # 使用更鲁棒的方法：强制块均值到目标区间
+            # bit=1 -> 均值 >= 160 (高区)
+            # bit=0 -> 均值 <= 96 (低区)
+            HIGH_THRESH = 160
+            LOW_THRESH = 96
+            
             for h in range(0, height - 7, 8):
                 for w in range(0, width - 7, 8):
                     if bit_idx >= len(data_bits):
@@ -471,13 +477,17 @@ class JPEGHandler(BaseHandler):
                     block = img_yuv[h:h+8, w:w+8, 0].astype(float)
                     dct_mean = block.mean()
                     
-                    # 嵌入比特（简化方法：调整块均值）
+                    # 嵌入比特（强制到目标区间）
                     if data_bits[bit_idx] == 1:
-                        if dct_mean < 128:
-                            block = block + 1
+                        # 目标：>= 160
+                        if dct_mean < HIGH_THRESH:
+                            delta = HIGH_THRESH - dct_mean + 10
+                            block = block + delta
                     else:
-                        if dct_mean >= 128:
-                            block = block - 1
+                        # 目标：<= 96
+                        if dct_mean > LOW_THRESH:
+                            delta = LOW_THRESH - dct_mean - 10
+                            block = block + delta
                     
                     img_yuv[h:h+8, w:w+8, 0] = block.clip(0, 255)
                     bit_idx += 1
@@ -536,12 +546,17 @@ class JPEGHandler(BaseHandler):
             bits = []
             height, width = img_yuv.shape[:2]
             
-            # 提取比特
+            # 提取比特（使用中间阈值128）
+            HIGH_THRESH = 160
+            LOW_THRESH = 96
+            MID_THRESH = 128
+            
             for h in range(0, height - 7, 8):
                 for w in range(0, width - 7, 8):
                     block = img_yuv[h:h+8, w:w+8, 0].astype(float)
                     dct_mean = block.mean()
-                    bit = 1 if dct_mean >= 128 else 0
+                    # 根据块均值所在的区间判断比特
+                    bit = 1 if dct_mean >= MID_THRESH else 0
                     bits.append(bit)
             
             # 查找同步头
@@ -560,38 +575,28 @@ class JPEGHandler(BaseHandler):
                     file_path=file_path
                 )
             
-            # 提取长度
-            length_bits = bits[sync_idx:sync_idx+32]
-            length_bytes = bytearray()
-            for i in range(0, 32, 8):
-                byte = 0
-                for j in range(8):
-                    byte |= (length_bits[i+j] << (7-j))
-                length_bytes.append(byte)
+            # 直接提取编码数据（无需长度前缀，codec内部有格式）
+            # 尝试提取足够多的比特，让 codec 解析
+            MAX_DATA_SIZE = 1024  # 最多提取 1KB 数据
+            data_bits = bits[sync_idx:sync_idx + MAX_DATA_SIZE * 8]
             
-            data_length = int.from_bytes(bytes(length_bytes), 'big')
-            
-            if data_length <= 0 or data_length > 10 * 1024 * 1024:
-                logger.warning(f"Invalid length: {data_length}")
+            if len(data_bits) < 8:
+                logger.warning("Not enough bits after sync")
                 return ExtractResult(
                     status=WatermarkStatus.EXTRACTION_FAILED,
-                    message="无效长度",
+                    message="数据不足",
                     file_path=file_path
                 )
             
-            # 提取数据
-            data_start = sync_idx + 32
-            data_end = data_start + data_length * 8
-            data_bits = bits[data_start:data_end]
-            
+            # 转换为字节
             data_bytes = bytearray()
-            for i in range(0, len(data_bits), 8):
-                if i + 8 > len(data_bits):
-                    break
+            for i in range(0, len(data_bits) - 7, 8):
                 byte = 0
                 for j in range(8):
                     byte |= (data_bits[i+j] << (7-j))
                 data_bytes.append(byte)
+            
+            logger.debug(f"First 10 bytes: {list(data_bytes[:10])}")
             
             # 解码水印
             success, content, details = self.codec.decode(bytes(data_bytes))
@@ -605,9 +610,10 @@ class JPEGHandler(BaseHandler):
                     watermark=WatermarkData(content=content)
                 )
             else:
+                logger.warning(f"Decode failed: {details}")
                 return ExtractResult(
                     status=WatermarkStatus.EXTRACTION_FAILED,
-                    message="解码失败",
+                    message=f"解码失败: {details.get('error', '未知错误')}",
                     file_path=file_path
                 )
                 
