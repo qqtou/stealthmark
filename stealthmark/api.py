@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Optional, List
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.core.manager import StealthMark
@@ -25,6 +26,11 @@ app = FastAPI(
     description="隐式水印工具 - Web API",
     version="1.0.0",
 )
+
+# Mount static files for test frontend
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 # ==================== Pydantic Models ====================
@@ -74,9 +80,12 @@ class InfoResponse(BaseModel):
 SUPPORTED_CATEGORIES = {
     "document": ["pdf", "docx", "pptx", "xlsx", "odt", "odp", "ods", "epub", "rtf"],
     "image": ["png", "jpg", "jpeg", "bmp", "tiff", "tif", "webp", "gif", "heic", "heif"],
-    "audio": ["wav", "mp3", "flac", "aac", "m4a"],
+    "audio": ["wav", "mp3", "flac", "aac", "m4a", "ogg"],
     "video": ["mp4", "avi", "mkv", "mov", "webm", "wmv"],
 }
+
+# Test template files directory
+FIXTURES_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
 
 async def save_upload(file: UploadFile, suffix: str = "") -> str:
@@ -117,6 +126,80 @@ async def info():
             formats[cat] = found
     return InfoResponse(handlers=len(sm._handler_registry), formats=formats)
 
+
+@app.get("/test")
+async def test_page():
+    """Redirect to test frontend page."""
+    _html_path = Path(__file__).resolve().parent / "static" / "test.html"
+    if _html_path.exists():
+        return HTMLResponse(content=_html_path.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>Test page not found</h1><p>Run: python -m stealthmark.api</p>", status_code=404)
+
+
+@app.get("/test-templates")
+async def test_templates():
+    """List available test template files."""
+    if not FIXTURES_DIR.exists():
+        return {"templates": [], "error": "Fixtures directory not found"}
+    
+    templates = []
+    for f in FIXTURES_DIR.iterdir():
+        if f.is_file() and f.name.startswith("test."):
+            templates.append({
+                "name": f.name,
+                "ext": f.suffix,
+                "size": f.stat().st_size,
+                "url": f"/test-template/{f.suffix[1:]}",  # .pdf -> /test-template/pdf
+            })
+    return {"templates": templates}
+
+
+@app.get("/test-template/{ext}")
+async def get_test_template(ext: str):
+    """Download a test template file by extension."""
+    # Map extension to filename
+    ext_map = {
+        "jpg": "jpeg",
+        "jpeg": "jpeg",
+        "tiff": "tiff",
+        "tif": "tiff",
+        "heif": "heic",
+        "m4a": "m4a",
+    }
+    filename = f"test.{ext_map.get(ext, ext)}"
+    filepath = FIXTURES_DIR / filename
+    
+    if not filepath.exists():
+        raise HTTPException(404, f"Template not found: {filename}")
+    
+    return FileResponse(
+        path=str(filepath),
+        filename=filename,
+        media_type="application/octet-stream",
+    )
+
+
+# ==================== Output File Endpoint ====================
+
+@app.get("/output-file")
+async def get_output_file(path: str):
+    """Get embedded output file by temp path."""
+    if not path:
+        raise HTTPException(400, "path is required")
+    
+    filepath = Path(path)
+    if not filepath.exists():
+        raise HTTPException(404, f"File not found: {path}")
+    
+    # Return file with original extension
+    return FileResponse(
+        path=str(filepath),
+        filename=filepath.name,
+        media_type="application/octet-stream",
+    )
+
+
+# ==================== Embed/Extract/Verify Endpoints ====================
 
 @app.post("/embed", response_model=EmbedResponse)
 async def embed_api(

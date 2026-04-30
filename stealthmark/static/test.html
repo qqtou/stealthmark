@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StealthMark 测试工具</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        :root {
+            --primary: #2E7D32;
+            --primary-dark: #1B5E20;
+            --success: #4CAF50;
+            --error: #f44336;
+            --warning: #FF9800;
+            --bg: #f5f5f5;
+            --card: #ffffff;
+            --border: #e0e0e0;
+            --text: #333;
+            --text-muted: #666;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        
+        /* Header */
+        .header {
+            background: var(--primary);
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .api-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ccc;
+        }
+        
+        .status-dot.ok { background: var(--success); }
+        .status-dot.error { background: var(--error); }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+        }
+        
+        .tab {
+            padding: 16px 24px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            color: var(--text-muted);
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover {
+            color: var(--primary);
+        }
+        
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        
+        /* Main content */
+        .main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Cards */
+        .card {
+            background: var(--card);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+        
+        /* Form elements */
+        .form-group {
+            margin-bottom: 16px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+        
+        input[type="text"], input[type="password"], select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+        
+        .btn-primary:disabled {
+            background: #A5D6A7;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: #e0e0e0;
+            color: var(--text);
+        }
+        
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+        
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        
+        /* Format buttons */
+        .format-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        
+        .format-btn {
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: white;
+        }
+        
+        .format-btn:hover {
+            border-color: var(--primary);
+        }
+        
+        .format-btn.selected {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        
+        .category-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            margin-top: 12px;
+        }
+        
+        .category-label:first-child {
+            margin-top: 0;
+        }
+        
+        /* Progress */
+        .progress-bar {
+            height: 24px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--primary);
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        /* Table */
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            background: #fafafa;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        
+        .status-ok {
+            color: var(--success);
+            font-weight: 600;
+        }
+        
+        .status-fail {
+            color: var(--error);
+            font-weight: 600;
+        }
+        
+        /* Log */
+        .log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 16px;
+            border-radius: 6px;
+            font-family: "Consolas", "Monaco", monospace;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+            line-height: 1.5;
+        }
+        
+        .log-success { color: #4ec9b0; }
+        .log-error { color: #f14c4c; }
+        .log-warn { color: #cca700; }
+        .log-info { color: #3794ff; }
+        
+        /* Format cards */
+        .format-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        
+        .format-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        
+        .format-card h3 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .format-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        
+        .format-tag {
+            padding: 4px 8px;
+            background: #e8f5e9;
+            color: var(--primary);
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        /* Summary */
+        .summary {
+            display: flex;
+            gap: 24px;
+            margin-top: 16px;
+            padding: 16px;
+            background: #f9f9f9;
+            border-radius: 6px;
+        }
+        
+        .summary-item {
+            text-align: center;
+        }
+        
+        .summary-value {
+            font-size: 32px;
+            font-weight: 600;
+        }
+        
+        .summary-label {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 12px;
+            }
+            
+            .tabs {
+                overflow-x: auto;
+            }
+            
+            .main {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>StealthMark 测试工具</h1>
+        <div class="api-status">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">检查中...</span>
+        </div>
+    </header>
+    
+    <nav class="tabs">
+        <div class="tab active" data-tab="generate">测试文件生成</div>
+        <div class="tab" data-tab="test">全流程测试</div>
+        <div class="tab" data-tab="formats">支持格式</div>
+    </nav>
+    
+    <main class="main">
+        <!-- Tab 1: Generate -->
+        <div class="tab-content active" id="tab-generate">
+            <div class="card">
+                <h2>选择要生成的测试文件格式</h2>
+                
+                <div class="category-label">文档类</div>
+                <div class="format-grid" id="docFormats"></div>
+                
+                <div class="category-label">图片类</div>
+                <div class="format-grid" id="imgFormats"></div>
+                
+                <div class="category-label">音频类</div>
+                <div class="format-grid" id="audioFormats"></div>
+                
+                <div class="category-label">视频类</div>
+                <div class="format-grid" id="videoFormats"></div>
+                
+                <div class="form-group" style="margin-top: 20px;">
+                    <label>水印内容</label>
+                    <input type="text" id="watermarkInput" value="StealthMark-Test-2026" placeholder="输入水印内容">
+                </div>
+                
+                <div style="display: flex; gap: 12px; margin-top: 20px;">
+                    <button class="btn btn-primary" id="btnGenerateAll">生成全部测试文件</button>
+                    <button class="btn btn-secondary" id="btnGenerateSelected">生成选中文件</button>
+                    <button class="btn btn-secondary" id="btnSelectAll">全选</button>
+                    <button class="btn btn-secondary" id="btnDeselectAll">全不选</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>生成结果</h2>
+                <div id="generateResults">
+                    <p style="color: var(--text-muted);">点击上方按钮生成测试文件</p>
+                </div>
+                <div style="margin-top: 16px;">
+                    <button class="btn btn-secondary" id="btnDownloadAll">下载全部</button>
+                    <button class="btn btn-secondary" id="btnClearResults">清除</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tab 2: Full Test -->
+        <div class="tab-content" id="tab-test">
+            <div class="card">
+                <h2>测试配置</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 200px; gap: 16px;">
+                    <div class="form-group">
+                        <label>水印内容</label>
+                        <input type="text" id="testWatermark" value="StealthMark-Test-2026">
+                    </div>
+                    <div class="form-group">
+                        <label>密码（可选）</label>
+                        <input type="password" id="testPassword" placeholder="留空则不加密">
+                    </div>
+                    <div class="form-group">
+                        <label>并发数</label>
+                        <select id="testConcurrency">
+                            <option value="1">1 (顺序)</option>
+                            <option value="2">2</option>
+                            <option value="4" selected>4</option>
+                            <option value="8">8</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: 16px;">
+                    <button class="btn btn-primary" id="btnStartTest">开始全流程测试</button>
+                    <button class="btn btn-secondary" id="btnStopTest" disabled>停止</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>测试进度</h2>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
+                </div>
+                <p id="progressText" style="font-size: 14px; color: var(--text-muted);">就绪</p>
+            </div>
+            
+            <div class="card">
+                <h2>测试结果</h2>
+                <div class="table-container">
+                    <table id="testResults">
+                        <thead>
+                            <tr>
+                                <th>文件</th>
+                                <th>Embed</th>
+                                <th>Extract</th>
+                                <th>Verify</th>
+                                <th>耗时</th>
+                                <th>详情</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="summary" id="testSummary" style="display: none;">
+                    <div class="summary-item">
+                        <div class="summary-value" style="color: var(--success);" id="summarySuccess">0</div>
+                        <div class="summary-label">成功</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value" style="color: var(--error);" id="summaryFailed">0</div>
+                        <div class="summary-label">失败</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-value" id="summaryTotal">0</div>
+                        <div class="summary-label">总计</div>
+                    </div>
+                </div>
+                <div style="margin-top: 16px;">
+                    <button class="btn btn-secondary" id="btnExportReport">导出报告</button>
+                    <button class="btn btn-secondary" id="btnRetryFailed">重试失败项</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>日志</h2>
+                <div class="log" id="testLog">
+                    <div class="log-info">[INFO] 测试工具就绪</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tab 3: Formats -->
+        <div class="tab-content" id="tab-formats">
+            <div class="card">
+                <h2>StealthMark 支持格式</h2>
+                <p id="formatCount" style="color: var(--text-muted); margin-bottom: 16px;">加载中...</p>
+                <div class="format-cards" id="formatCards"></div>
+                <div style="margin-top: 16px;">
+                    <button class="btn btn-secondary" id="btnRefreshFormats">刷新</button>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <script>
+        // ==================== Global State ====================
+        const state = {
+            apiOk: false,
+            formats: {},
+            generatedFiles: {},  // ext -> {blob, name, size}
+            testResults: [],
+            testRunning: false,
+            testAbort: false,
+        };
+        
+        const CATEGORIES = {
+            document: { label: '文档', icon: '📄', formats: ['pdf', 'docx', 'pptx', 'xlsx', 'odt', 'odp', 'ods', 'epub', 'rtf'] },
+            image: { label: '图片', icon: '🖼️', formats: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif', 'webp', 'gif', 'heic'] },
+            audio: { label: '音频', icon: '🎵', formats: ['wav', 'mp3', 'flac', 'aac', 'm4a', 'ogg'] },
+            video: { label: '视频', icon: '🎬', formats: ['mp4', 'avi', 'mkv', 'mov', 'webm', 'wmv'] },
+        };
+        
+        // ==================== API ====================
+        const API = {
+            async checkHealth() {
+                try {
+                    const res = await fetch('/health');
+                    const data = await res.json();
+                    return data.status === 'ok';
+                } catch (e) {
+                    return false;
+                }
+            },
+            
+            async getInfo() {
+                const res = await fetch('/info');
+                return await res.json();
+            },
+            
+            async getTestTemplates() {
+                const res = await fetch('/test-templates');
+                return await res.json();
+            },
+            
+            async getTestTemplate(ext) {
+                const res = await fetch(`/test-template/${ext}`);
+                if (!res.ok) throw new Error(`Template not found: ${ext}`);
+                return await res.blob();
+            },
+            
+            async embed(file, watermark, password = null) {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('watermark', watermark);
+                if (password) formData.append('password', password);
+                
+                const res = await fetch('/embed', { method: 'POST', body: formData });
+                return await res.json();
+            },
+            
+            async extract(file, password = null) {
+                const formData = new FormData();
+                formData.append('file', file);
+                if (password) formData.append('password', password);
+                
+                const res = await fetch('/extract', { method: 'POST', body: formData });
+                return await res.json();
+            },
+            
+            async verify(file, watermark, password = null) {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('watermark', watermark);
+                if (password) formData.append('password', password);
+                
+                const res = await fetch('/verify', { method: 'POST', body: formData });
+                return await res.json();
+            },
+        };
+        
+        // ==================== UI Helpers ====================
+        function log(msg, type = 'info') {
+            const logEl = document.getElementById('testLog');
+            const line = document.createElement('div');
+            line.className = `log-${type}`;
+            const time = new Date().toLocaleTimeString();
+            line.textContent = `[${time}] ${msg}`;
+            logEl.appendChild(line);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function updateStatus(ok) {
+            state.apiOk = ok;
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            dot.className = 'status-dot ' + (ok ? 'ok' : 'error');
+            text.textContent = ok ? 'API 已连接' : 'API 未连接';
+        }
+        
+        function setStatusIcon(ok) {
+            return ok ? '<span class="status-ok">[OK]</span>' : '<span class="status-fail">[FAIL]</span>';
+        }
+        
+        // ==================== Tab Switching ====================
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            });
+        });
+        
+        // ==================== Tab 1: Generate ====================
+        function initFormatButtons() {
+            for (const [cat, info] of Object.entries(CATEGORIES)) {
+                const containerId = {
+                    document: 'docFormats',
+                    image: 'imgFormats',
+                    audio: 'audioFormats',
+                    video: 'videoFormats',
+                }[cat];
+                const container = document.getElementById(containerId);
+                
+                info.formats.forEach(ext => {
+                    const btn = document.createElement('button');
+                    btn.className = 'format-btn';
+                    btn.textContent = '.' + ext;
+                    btn.dataset.ext = ext;
+                    btn.addEventListener('click', () => btn.classList.toggle('selected'));
+                    container.appendChild(btn);
+                });
+            }
+        }
+        
+        document.getElementById('btnSelectAll').addEventListener('click', () => {
+            document.querySelectorAll('.format-btn').forEach(b => b.classList.add('selected'));
+        });
+        
+        document.getElementById('btnDeselectAll').addEventListener('click', () => {
+            document.querySelectorAll('.format-btn').forEach(b => b.classList.remove('selected'));
+        });
+        
+        async function generateTestFiles(selectedOnly = false) {
+            const resultsContainer = document.getElementById('generateResults');
+            resultsContainer.innerHTML = '<p>正在生成测试文件...</p>';
+            
+            const formats = selectedOnly 
+                ? [...document.querySelectorAll('.format-btn.selected')].map(b => b.dataset.ext)
+                : Object.values(CATEGORIES).flatMap(c => c.formats);
+            
+            if (formats.length === 0) {
+                resultsContainer.innerHTML = '<p style="color: var(--warning);">请先选择要生成的格式</p>';
+                return;
+            }
+            
+            state.generatedFiles = {};
+            const results = [];
+            
+            for (const ext of formats) {
+                try {
+                    const blob = await API.getTestTemplate(ext);
+                    const size = (blob.size / 1024).toFixed(1);
+                    state.generatedFiles[ext] = {
+                        blob: blob,
+                        name: `test.${ext}`,
+                        size: size,
+                    };
+                    results.push({ ext, success: true, size });
+                } catch (e) {
+                    results.push({ ext, success: false, error: e.message });
+                }
+            }
+            
+            // Display results
+            let html = '<div class="table-container"><table><thead><tr><th>格式</th><th>状态</th><th>大小</th><th>操作</th></tr></thead><tbody>';
+            for (const r of results) {
+                html += `<tr>
+                    <td>.${r.ext}</td>
+                    <td>${r.success ? '<span class="status-ok">已生成</span>' : '<span class="status-fail">失败: ' + r.error + '</span>'}</td>
+                    <td>${r.success ? r.size + ' KB' : '-'}</td>
+                    <td>${r.success ? `<button class="btn btn-sm btn-secondary" onclick="downloadFile('${r.ext}')">下载</button>` : '-'}</td>
+                </tr>`;
+            }
+            html += '</tbody></table></div>';
+            resultsContainer.innerHTML = html;
+        }
+        
+        function downloadFile(ext) {
+            const file = state.generatedFiles[ext];
+            if (!file) return;
+            const url = URL.createObjectURL(file.blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        document.getElementById('btnGenerateAll').addEventListener('click', () => generateTestFiles(false));
+        document.getElementById('btnGenerateSelected').addEventListener('click', () => generateTestFiles(true));
+        
+        document.getElementById('btnDownloadAll').addEventListener('click', () => {
+            for (const ext of Object.keys(state.generatedFiles)) {
+                downloadFile(ext);
+            }
+        });
+        
+        document.getElementById('btnClearResults').addEventListener('click', () => {
+            state.generatedFiles = {};
+            document.getElementById('generateResults').innerHTML = '<p style="color: var(--text-muted);">点击上方按钮生成测试文件</p>';
+        });
+        
+        // ==================== Tab 2: Full Test ====================
+        async function runFullTest() {
+            if (state.testRunning) return;
+            state.testRunning = true;
+            state.testAbort = false;
+            state.testResults = [];
+            
+            const btnStart = document.getElementById('btnStartTest');
+            const btnStop = document.getElementById('btnStopTest');
+            btnStart.disabled = true;
+            btnStop.disabled = false;
+            
+            const watermark = document.getElementById('testWatermark').value;
+            const password = document.getElementById('testPassword').value || null;
+            const concurrency = parseInt(document.getElementById('testConcurrency').value);
+            
+            // Get test files
+            const formats = Object.keys(state.generatedFiles);
+            if (formats.length === 0) {
+                log('请先生成测试文件', 'error');
+                state.testRunning = false;
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+                return;
+            }
+            
+            log(`开始全流程测试，共 ${formats.length} 个文件，并发数 ${concurrency}`, 'info');
+            
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            const tbody = document.querySelector('#testResults tbody');
+            tbody.innerHTML = '';
+            
+            let completed = 0;
+            let success = 0;
+            let failed = 0;
+            
+            // Process in batches
+            for (let i = 0; i < formats.length; i += concurrency) {
+                if (state.testAbort) break;
+                
+                const batch = formats.slice(i, i + concurrency);
+                const promises = batch.map(async (ext) => {
+                    const file = state.generatedFiles[ext];
+                    const result = { ext, embed: false, extract: false, verify: false, time: 0, error: null };
+                    const start = Date.now();
+                    
+                    try {
+                        // Embed
+                        const fileForEmbed = new File([file.blob], file.name);
+                        const embedRes = await API.embed(fileForEmbed, watermark, password);
+                        result.embed = embedRes.success;
+                        if (!embedRes.success) {
+                            result.error = embedRes.message;
+                            return result;
+                        }
+                        
+                        // Create embedded file
+                        if (embedRes.output_file) {
+                            // Fetch embedded file from temp path
+                            const embeddedBlob = await fetch('/output-file?path=' + encodeURIComponent(embedRes.output_file)).then(r => r.blob());
+                            file.embeddedBlob = embeddedBlob;
+                        } else {
+                            // Use original if overwrite
+                            file.embeddedBlob = file.blob;
+                        }
+                        
+                        // Extract
+                        const fileForExtract = new File([file.embeddedBlob], file.name);
+                        const extractRes = await API.extract(fileForExtract, password);
+                        result.extract = extractRes.success;
+                        
+                        // Verify
+                        const verifyRes = await API.verify(fileForExtract, watermark, password);
+                        result.verify = verifyRes.match;
+                        
+                    } catch (e) {
+                        result.error = e.message;
+                    }
+                    
+                    result.time = ((Date.now() - start) / 1000).toFixed(1);
+                    return result;
+                });
+                
+                const batchResults = await Promise.all(promises);
+                
+                for (const result of batchResults) {
+                    state.testResults.push(result);
+                    
+                    // Update table
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>test.${result.ext}</td>
+                        <td>${result.embed ? '<span class="status-ok">[OK]</span>' : '<span class="status-fail">[FAIL]</span>'}</td>
+                        <td>${result.extract ? '<span class="status-ok">[OK]</span>' : '<span class="status-fail">[FAIL]</span>'}</td>
+                        <td>${result.verify ? '<span class="status-ok">[OK]</span>' : '<span class="status-fail">[FAIL]</span>'}</td>
+                        <td>${result.time}s</td>
+                        <td>${result.error || '-'}</td>
+                    `;
+                    tbody.appendChild(tr);
+                    
+                    completed++;
+                    if (result.embed && result.extract && result.verify) {
+                        success++;
+                        log(`test.${result.ext} - 成功`, 'success');
+                    } else {
+                        failed++;
+                        log(`test.${result.ext} - 失败: ${result.error || '验证不匹配'}`, 'error');
+                    }
+                }
+                
+                // Update progress
+                const pct = Math.round(completed / formats.length * 100);
+                progressFill.style.width = pct + '%';
+                progressFill.textContent = pct + '%';
+                progressText.textContent = `已完成 ${completed}/${formats.length}`;
+            }
+            
+            // Show summary
+            document.getElementById('testSummary').style.display = 'flex';
+            document.getElementById('summarySuccess').textContent = success;
+            document.getElementById('summaryFailed').textContent = failed;
+            document.getElementById('summaryTotal').textContent = completed;
+            
+            log(`测试完成：成功 ${success}/${completed}，失败 ${failed}`, 'info');
+            
+            state.testRunning = false;
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+        }
+        
+        document.getElementById('btnStartTest').addEventListener('click', runFullTest);
+        
+        document.getElementById('btnStopTest').addEventListener('click', () => {
+            state.testAbort = true;
+            log('正在停止测试...', 'warn');
+        });
+        
+        document.getElementById('btnExportReport').addEventListener('click', () => {
+            const lines = ['StealthMark 测试报告', '=' .repeat(40), '', '文件\t\tEmbed\tExtract\tVerify\t耗时', '-'.repeat(40)];
+            for (const r of state.testResults) {
+                lines.push(`test.${r.ext}\t\t${r.embed?'OK':'FAIL'}\t${r.extract?'OK':'FAIL'}\t${r.verify?'OK':'FAIL'}\t${r.time}s`);
+            }
+            lines.push('-'.repeat(40));
+            const success = state.testResults.filter(r => r.embed && r.extract && r.verify).length;
+            lines.push(`\n汇总：成功 ${success}/${state.testResults.length}，失败 ${state.testResults.length - success}`);
+            
+            const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'test-report.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+        
+        document.getElementById('btnRetryFailed').addEventListener('click', () => {
+            // TODO: Implement retry failed
+            log('重试功能开发中...', 'warn');
+        });
+        
+        // ==================== Tab 3: Formats ====================
+        async function loadFormats() {
+            try {
+                const info = await API.getInfo();
+                const container = document.getElementById('formatCards');
+                document.getElementById('formatCount').textContent = `支持 ${info.handlers} 个 Handler，${Object.values(info.formats).flat().length} 种格式`;
+                
+                container.innerHTML = '';
+                
+                const categoryLabels = {
+                    document: { name: '文档类', icon: '📄' },
+                    image: { name: '图片类', icon: '🖼️' },
+                    audio: { name: '音频类', icon: '🎵' },
+                    video: { name: '视频类', icon: '🎬' },
+                };
+                
+                for (const [cat, formats] of Object.entries(info.formats)) {
+                    const card = document.createElement('div');
+                    card.className = 'format-card';
+                    const meta = categoryLabels[cat] || { name: cat, icon: '📁' };
+                    card.innerHTML = `
+                        <h3>${meta.icon} ${meta.name} (${formats.length}种)</h3>
+                        <div class="format-list">
+                            ${formats.map(f => `<span class="format-tag">${f}</span>`).join('')}
+                        </div>
+                    `;
+                    container.appendChild(card);
+                }
+            } catch (e) {
+                document.getElementById('formatCount').textContent = '加载失败: ' + e.message;
+            }
+        }
+        
+        document.getElementById('btnRefreshFormats').addEventListener('click', loadFormats);
+        
+        // ==================== Init ====================
+        async function init() {
+            initFormatButtons();
+            
+            const ok = await API.checkHealth();
+            updateStatus(ok);
+            
+            if (ok) {
+                await loadFormats();
+                log('API 连接成功，测试工具就绪', 'success');
+            } else {
+                log('API 未连接，请先启动 API 服务: uvicorn stealthmark.api:app --reload', 'error');
+            }
+        }
+        
+        init();
+    </script>
+</body>
+</html>
