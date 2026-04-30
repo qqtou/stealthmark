@@ -1,5 +1,6 @@
 import os
 import subprocess
+import traceback
 from ..core.base import BaseHandler, WatermarkData, WatermarkStatus, EmbedResult, ExtractResult, VerifyResult
 from ..core.codec import WatermarkCodec
 
@@ -33,14 +34,21 @@ class OGGHandler(BaseHandler):
                 '-metadata', f'STEALTHMARK={data.hex()}',
                 output_path
             ]
+            logger = __import__('logging').getLogger(__name__)
+            logger.info(f"OGG embed cmd: {' '.join(cmd)}")
+            
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
+                logger.error(f"ffmpeg failed with returncode {result.returncode}")
+                logger.error(f"ffmpeg stdout: {result.stdout[-500:]}")
+                logger.error(f"ffmpeg stderr: {result.stderr[-500:]}")
                 return EmbedResult(
                     status=WatermarkStatus.FAILED,
                     message=f'ffmpeg failed: {result.stderr[-200:]}',
                     file_path=output_path
                 )
             
+            logger.info(f"OGG embed success: {output_path}")
             return EmbedResult(
                 status=WatermarkStatus.SUCCESS,
                 message='Watermark embedded in OGG metadata',
@@ -48,6 +56,9 @@ class OGGHandler(BaseHandler):
                 output_path=output_path
             )
         except Exception as e:
+            logger = __import__('logging').getLogger(__name__)
+            logger.error(f"OGG embed exception: {e}")
+            logger.error(traceback.format_exc())
             return EmbedResult(
                 status=WatermarkStatus.FAILED,
                 message=f'OGG embed failed: {str(e)}',
@@ -60,21 +71,28 @@ class OGGHandler(BaseHandler):
             ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
             ffprobe = os.path.join(ffmpeg_dir, 'ffprobe.exe')
             if not os.path.exists(ffprobe):
-                ffprobe = 'ffprobe'  # 尝试系统PATH
+                ffprobe = 'ffprobe'  # 回退到系统PATH
             
-            # 使用ffprobe读取metadata（OGG的Vorbis Comment）
+            logger = __import__('logging').getLogger(__name__)
+            logger.info(f"OGG extract: ffprobe path = {ffprobe}")
+            
+            # 使用ffprobe读取metadata
             cmd = [
                 ffprobe,
-                '-v', 'error',
+                '-v', 'quiet',
                 '-show_entries', 'format_tags=STEALTHMARK',
                 '-of', 'default=noprint_wrappers=1:nokey=1',
                 file_path
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            logger.info(f"OGG extract cmd: {' '.join(cmd)}")
             
-            # 如果失败，尝试另一种方式：读取输出文件
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            logger.info(f"ffprobe returncode: {result.returncode}")
+            logger.info(f"ffprobe stdout: {result.stdout[:200]}")
+            logger.info(f"ffprobe stderr: {result.stderr[:200]}")
+            
             if result.returncode != 0 or not result.stdout.strip():
-                # 尝试直接读取OGG文件（简单方式）
+                logger.error(f"ffprobe failed: stdout={result.stdout}, stderr={result.stderr[:200]}")
                 return ExtractResult(
                     status=WatermarkStatus.FAILED,
                     message='No StealthMark found in OGG metadata',
@@ -82,16 +100,12 @@ class OGGHandler(BaseHandler):
                 )
             
             data_hex = result.stdout.strip()
-            if not data_hex:
-                return ExtractResult(
-                    status=WatermarkStatus.FAILED,
-                    message='Empty metadata value',
-                    file_path=file_path
-                )
+            logger.info(f"OGG extract data_hex: {data_hex[:100]}")
             
             try:
                 data = bytes.fromhex(data_hex)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Invalid hex data: {data_hex}")
                 return ExtractResult(
                     status=WatermarkStatus.FAILED,
                     message='Invalid hex data in metadata',
@@ -107,12 +121,16 @@ class OGGHandler(BaseHandler):
                     watermark=WatermarkData(content=content)
                 )
             else:
+                logger.error(f"OGG decode failed: {details}")
                 return ExtractResult(
                     status=WatermarkStatus.FAILED,
                     message=f'Decode failed: {details.get("error", "Unknown")}',
                     file_path=file_path
                 )
         except Exception as e:
+            logger = __import__('logging').getLogger(__name__)
+            logger.error(f"OGG extract exception: {e}")
+            logger.error(traceback.format_exc())
             return ExtractResult(
                 status=WatermarkStatus.FAILED,
                 message=f'OGG extract failed: {str(e)}',
