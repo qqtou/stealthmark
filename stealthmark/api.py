@@ -218,10 +218,17 @@ async def embed_api(
     try:
         result = sm.embed(input_path, watermark, output_path, password=password)
         if result.is_success:
+            # AAC handler may change .aac to .m4a (ALAC encoding)
+            actual_output = output_path
+            if not Path(output_path).exists():
+                # Check for .m4a variant (AAC -> M4A conversion)
+                m4a_path = str(Path(output_path).with_suffix('.m4a'))
+                if Path(m4a_path).exists():
+                    actual_output = m4a_path
             return EmbedResponse(
                 success=True,
                 watermark=watermark,
-                output_file=output_path,
+                output_file=actual_output,
                 message="嵌入成功",
             )
         else:

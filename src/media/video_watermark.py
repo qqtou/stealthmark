@@ -136,45 +136,24 @@ class VideoHandler(BaseHandler):
                     file_path=file_path
                 )
             
-            # 多帧嵌入: 分散到前3帧，防止单帧损坏
-            total_bits = len(bits)
-            target_frames = min(3, len(frames))
-            per_frame_bits = total_bits // target_frames
-            bit_idx = 0
+            # 单帧嵌入: 只修改第一帧（足够容纳水印数据）
+            # 注意: 多帧分散会导致字节边界错位，提取复杂度高
+            first_frame = frames[0].copy()
+            h, w = first_frame.shape[0], first_frame.shape[1]
             
-            for f_idx in range(target_frames):
-                # 计算该帧的比特范围
-                start = f_idx * per_frame_bits
-                if f_idx == target_frames - 1:
-                    # 最后一帧包含所有剩余比特
-                    frame_bits = bits[start:]
-                else:
-                    frame_bits = bits[start:start+per_frame_bits]
-                
-                # 获取该帧并复制
-                frame = frames[f_idx].copy()
-                h_f, w_f = frame.shape[0], frame.shape[1]
-                logger.debug(f"Embedding into frame {f_idx}: {len(frame_bits)} bits")
-                
-                # 在该帧的Blue通道嵌入比特
-                bit_pos = 0
-                for i in range(h_f):
-                    for j in range(w_f):
-                        if bit_pos >= len(frame_bits):
-                            break
-                        # Blue通道LSB
-                        frame[i, j, 2] = (int(frame[i, j, 2]) & 0xFE) | int(frame_bits[bit_pos])
-                        bit_pos += 1
-                    if bit_pos >= len(frame_bits):
+            # 在第一帧的Blue通道嵌入所有比特
+            bit_pos = 0
+            for i in range(h):
+                for j in range(w):
+                    if bit_pos >= len(bits):
                         break
-                
-                frames[f_idx] = frame
-                bit_idx += len(frame_bits)
-                if bit_idx >= total_bits:
+                    first_frame[i, j, 2] = (int(first_frame[i, j, 2]) & 0xFE) | int(bits[bit_pos])
+                    bit_pos += 1
+                if bit_pos >= len(bits):
                     break
             
-            logger.debug(f"Embedded {bit_idx} bits across {target_frames} frames")
-            logger.debug(f"Embedded {bit_idx} bits into frame 0 Blue channel")
+            frames[0] = first_frame
+            logger.debug(f"Embedded {bit_pos} bits into frame 0 Blue channel")
             
             # 写入: 用ffmpeg无损编码
             # 先写帧序列为PNG
@@ -239,7 +218,7 @@ class VideoHandler(BaseHandler):
             # 清理临时文件
             self._cleanup_tmp(tmp_dir, len(frames))
             
-            logger.info(f"Video embed success: {bit_idx} bits, {len(frames)} frames")
+            logger.info(f"Video embed success: {bit_pos} bits, {len(frames)} frames")
             return self._create_success_result(output_path)
             
         except Exception as e:
@@ -278,43 +257,47 @@ class VideoHandler(BaseHandler):
             import imageio
             reader = imageio.get_reader(file_path)
             
-            # 读取第一帧
-            first_frame = None
-            for frame in reader:
-                first_frame = frame.copy()
-                break
+            # 读取前3帧（与embed一致）
+            frames = []
+            for i, frame in enumerate(reader):
+                if i >= 3:
+                    break
+                frames.append(frame.copy())
             reader.close()
             
-            if first_frame is None:
+            if not frames:
                 return ExtractResult(
                     status=WatermarkStatus.EXTRACTION_FAILED,
                     message="视频无帧数据",
                     file_path=file_path
                 )
             
-            # 从Blue通道提取LSB
-            h, w = first_frame.shape[0], first_frame.shape[1]
+            # 从所有帧的Blue通道提取LSB并合并
             bits = []
-            max_bits = min(h * w, 50000)  # 最多读这么多位
+            max_bits = 50000  # 最多读这么多位
             
-            for i in range(h):
-                for j in range(w):
+            for frame in frames:
+                h, w = frame.shape[0], frame.shape[1]
+                for i in range(h):
+                    for j in range(w):
+                        if len(bits) >= max_bits:
+                            break
+                        bits.append(frame[i, j, 2] & 1)
                     if len(bits) >= max_bits:
                         break
-                    bits.append(first_frame[i, j, 2] & 1)
                 if len(bits) >= max_bits:
                     break
             
             bit_str = ''.join(str(b) for b in bits)
-            logger.debug(f"Extracted {len(bits)} bits from Blue channel")
+            logger.debug(f"Extracted {len(bits)} bits from {len(frames)} frames Blue channel")
             
-            # 查找同步头 (0xAA 0xAA 0xAA 0xAA = 10101010重复4次)
-            sync_bits = '10101010101010101010101010101010'
+            # 查找同步头 (0xAA * 8 = 10101010重复8次)
+            sync_bits = '1010101010101010101010101010101010101010101010101010101010101010'
             sync_pos = bit_str.find(sync_bits)
             
             if sync_pos == -1:
-                # 尝试短同步头
-                sync_bits = '1010101010101010'
+                # 尝试短同步头 (4字节)
+                sync_bits = '10101010101010101010101010101010'
                 sync_pos = bit_str.find(sync_bits)
                 if sync_pos == -1:
                     return ExtractResult(
