@@ -29,18 +29,25 @@ class OGGHandler(BaseHandler):
             cmd = [
                 self.ffmpeg_path, '-y',
                 '-i', file_path,
-                '-c:a', 'libvorbis',  # OGG必须用libvorbis编码
+                '-c:a', 'libvorbis',
                 '-metadata', f'STEALTHMARK={data.hex()}',
                 output_path
             ]
+            logger = __import__('logging').getLogger(__name__)
+            logger.info(f"OGG embed cmd: {' '.join(cmd)}")
+            
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
+                logger.error(f"ffmpeg failed with returncode {result.returncode}")
+                logger.error(f"ffmpeg stdout: {result.stdout[-500:]}")
+                logger.error(f"ffmpeg stderr: {result.stderr[-500:]}")
                 return EmbedResult(
                     status=WatermarkStatus.FAILED,
-                    message=f'ffmpeg failed: {result.stderr[-200:]}',
+                    message=f'ffmpeg failed with returncode {result.returncode}: {result.stderr[-200:]}',
                     file_path=output_path
                 )
             
+            logger.info(f"OGG embed success: {output_path}")
             return EmbedResult(
                 status=WatermarkStatus.SUCCESS,
                 message='Watermark embedded in OGG metadata',
@@ -48,6 +55,10 @@ class OGGHandler(BaseHandler):
                 output_path=output_path
             )
         except Exception as e:
+            import traceback
+            logger = __import__('logging').getLogger(__name__)
+            logger.error(f"OGG embed exception: {e}")
+            logger.error(traceback.format_exc())
             return EmbedResult(
                 status=WatermarkStatus.FAILED,
                 message=f'OGG embed failed: {str(e)}',
@@ -56,10 +67,9 @@ class OGGHandler(BaseHandler):
     
     def extract(self, file_path, **kwargs):
         try:
-            # 用ffprobe读取metadata
             ffprobe = self.ffmpeg_path.replace('ffmpeg', 'ffprobe')
             if not os.path.exists(ffprobe):
-                ffprobe = 'ffprobe'  # 尝试系统PATH
+                ffprobe = 'ffprobe'
             
             cmd = [
                 ffprobe,
@@ -68,8 +78,12 @@ class OGGHandler(BaseHandler):
                 '-of', 'default=noprint_wrappers=1:nokey=1',
                 file_path
             ]
+            logger = __import__('logging').getLogger(__name__)
+            logger.info(f"OGG extract cmd: {' '.join(cmd)}")
+            
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0 or not result.stdout.strip():
+                logger.error(f"ffprobe failed: stdout={result.stdout}, stderr={result.stderr[-200:]}")
                 return ExtractResult(
                     status=WatermarkStatus.FAILED,
                     message='No StealthMark found in OGG metadata',
@@ -77,6 +91,7 @@ class OGGHandler(BaseHandler):
                 )
             
             data_hex = result.stdout.strip()
+            logger.info(f"OGG extract data_hex: {data_hex[:100]}")
             data = bytes.fromhex(data_hex)
             success, content, details = self.codec.decode(data)
             if success:
@@ -87,12 +102,17 @@ class OGGHandler(BaseHandler):
                     watermark=WatermarkData(content=content)
                 )
             else:
+                logger.error(f"OGG decode failed: {details}")
                 return ExtractResult(
                     status=WatermarkStatus.FAILED,
-                    message=f'Decode failed: {details.get("error", "未知")}',
+                    message=f'Decode failed: {details.get("error", "Unknown")}',
                     file_path=file_path
                 )
         except Exception as e:
+            import traceback
+            logger = __import__('logging').getLogger(__name__)
+            logger.error(f"OGG extract exception: {e}")
+            logger.error(traceback.format_exc())
             return ExtractResult(
                 status=WatermarkStatus.FAILED,
                 message=f'OGG extract failed: {str(e)}',
