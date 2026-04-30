@@ -180,11 +180,17 @@ class AudioSpreadSpectrumHandler(BaseHandler):
         # 比特值映射到±1
         bit_signal = 1.0 if bit == 1 else -1.0
 
+        # 自适应alpha: 根据信号能量调整嵌入强度
+        energy = np.mean(signal ** 2)
+        # 能量低→弱嵌入，能量高→强嵌入（人耳掩蔽效应）
+        adaptive_alpha = self.alpha * (1.0 + 0.5 * np.log1p(energy * 1000))
+        adaptive_alpha = np.clip(adaptive_alpha, self.alpha * 0.5, self.alpha * 2.0)
+        
         # 扩频
         spread_signal = bit_signal * pn[:len(signal)]
-
+        
         # 叠加
-        embedded = signal + self.alpha * spread_signal
+        embedded = signal + adaptive_alpha * spread_signal
         return embedded
 
     def _extract_bit(self, signal: np.ndarray, pn: np.ndarray) -> int:
