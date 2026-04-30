@@ -2,13 +2,18 @@
 """
 StealthMark 命令行接口
 Stage 1: CLI 增强 - 进度条 + 详细日志 + 更好的错误提示
+Stage 2: 批量处理 - 并行 + 命名模式 + 扩展名过滤 + dry-run
 """
 
 import argparse
 import sys
 import os
 import logging
+import re
+import shutil
 from pathlib import Path
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.core.manager import StealthMark
 from src.core.base import WatermarkStatus
@@ -30,8 +35,7 @@ if not _HAS_COLORAMA:
 _C = Fore
 _S = Style
 
-# 状态符号（避免 GBK 乱码，统一用 ASCII）
-_OK  = '[OK]'
+_OK   = '[OK]'
 _FAIL = '[FAIL]'
 _DONE = '[DONE]'
 _SKIP = '[SKIP]'
@@ -43,27 +47,25 @@ def _color(text, color):
     return f'{color}{text}{_S.RESET_ALL}' if _HAS_COLORAMA else text
 
 
-def _ok(text):   return _color(f'{_OK} {text}',   _C.GREEN  + _S.BRIGHT)
-def _fail(text): return _color(f'{_FAIL} {text}', _C.RED    + _S.BRIGHT)
-def _info(text): return _color(f'{_INFO} {text}',  _C.CYAN   + _S.BRIGHT)
-def _warn(text): return _color(f'{_WARN} {text}', _C.YELLOW + _S.BRIGHT)
-def _dim(text):  return _color(text,               _C.WHITE  + _S.DIM)
+def _ok(text):    return _color(f'{_OK} {text}',   _C.GREEN  + _S.BRIGHT)
+def _fail(text):  return _color(f'{_FAIL} {text}', _C.RED    + _S.BRIGHT)
+def _info(text):  return _color(f'{_INFO} {text}',  _C.CYAN   + _S.BRIGHT)
+def _warn(text):  return _color(f'{_WARN} {text}', _C.YELLOW + _S.BRIGHT)
+def _dim(text):   return _color(text,               _C.WHITE  + _S.DIM)
 
 
 def setup_logging(verbose: bool = False, quiet: bool = False):
-    """配置日志"""
     if quiet:
         level = logging.ERROR
     elif verbose:
         level = logging.DEBUG
     else:
         level = logging.INFO
-    
-    # 避免重复 handler
+
     root = logging.getLogger()
     if root.handlers:
         root.handlers.clear()
-    
+
     logging.basicConfig(
         level=level,
         format='%(asctime)s %(levelname)-8s %(message)s',
@@ -75,33 +77,35 @@ def setup_logging(verbose: bool = False, quiet: bool = False):
 # ==================== 核心命令 ====================
 
 def cmd_embed(args):
-    """嵌入水印命令"""
     wm = StealthMark(password=args.password)
-    
+
     input_path = Path(args.input)
-    
+
+    if not input_path.exists():
+        _fail(f'File not found: {args.input}')
+        return 1
+
     if args.verbose:
         _info(f'Handler lookup: {input_path.suffix}')
         _info(f'Watermark: {args.watermark}')
-        if args.output:
-            _info(f'Output: {args.output}')
-        else:
-            _info(f'Output: in-place (no -o specified)')
-    
+
     if args.output and Path(args.output).exists():
         if not args.force and not _confirm_overwrite(args.output):
             _warn('Aborted.')
             return 1
-    
+    elif not args.output and input_path.exists():
+        # 无 -o 时：原地覆盖，强制跳过确认
+        pass
+
     if args.verbose:
         _info(f'Embedding...')
-    
+
     result = wm.embed(
         file_path=args.input,
         watermark=args.watermark,
         output_path=args.output
     )
-    
+
     if result.is_success:
         _ok(f'Watermark embedded: {result.output_path}')
         if args.verbose:
@@ -116,19 +120,18 @@ def cmd_embed(args):
 
 
 def cmd_extract(args):
-    """提取水印命令"""
     wm = StealthMark(password=args.password)
-    
+
     path = Path(args.file)
     if not path.exists():
         _fail(f'File not found: {args.file}')
         return 1
-    
+
     if args.verbose:
         _info(f'Extracting from: {args.file}')
-    
+
     result = wm.extract(file_path=args.file)
-    
+
     if result.is_success:
         content = result.watermark.content
         _ok(f'Watermark extracted: {content}')
@@ -144,14 +147,13 @@ def cmd_extract(args):
 
 
 def cmd_verify(args):
-    """验证水印命令"""
     wm = StealthMark(password=args.password)
-    
+
     result = wm.verify(
         file_path=args.file,
         original_watermark=args.watermark
     )
-    
+
     if result.is_valid:
         _ok(f'Verification passed')
         print(f'  Match: {result.match_score * 100:.1f}%')
@@ -169,24 +171,22 @@ def cmd_verify(args):
 
 
 def cmd_info(args):
-    """显示支持格式"""
     wm = StealthMark()
     formats = wm.supported_formats()
-    
-    # 按类别分组
+
     docs   = [f for f in formats if f in ('.pdf','.docx','.pptx','.xlsx','.odt','.ods','.odp','.epub','.rtf')]
     images = [f for f in formats if f in ('.png','.jpg','.jpeg','.bmp','.tiff','.tif','.webp','.gif','.heic')]
     audio  = [f for f in formats if f in ('.wav','.mp3','.flac','.aac','.m4a')]
     video  = [f for f in formats if f not in docs + images + audio]
-    
+
     print(f'StealthMark - {len(formats)} supported formats\n')
-    
+
     def show_group(title, items):
         print(_color(title, _C.CYAN + _S.BRIGHT))
         for ext in sorted(items):
             print(f'  {ext}')
         print()
-    
+
     show_group('Documents:', docs)
     show_group('Images:', images)
     show_group('Audio:', audio)
@@ -194,100 +194,245 @@ def cmd_info(args):
         show_group('Video:', video)
 
 
+# ==================== Stage 2: 批量处理 ====================
+
+def _build_output_path(input_file: Path, output_dir: Path, pattern: str, operation: str) -> Path:
+    """根据命名模式计算输出路径。
+
+    pattern 支持的占位符:
+      {name}   - 原文件名（不含扩展名）
+      {ext}    - 扩展名（含点，如 .pdf）
+      {stem}   - 同 {name}
+      {date}   - 日期 20260101
+      {time}   - 时间 153045
+      {dt}     - 日期时间 20260101_153045
+
+    embed 操作默认: {name}_wm{ext}
+    extract/verify 操作默认: {name}_out{ext}
+    """
+    if not pattern:
+        default_suffix = '_wm' if operation == 'embed' else '_out'
+        pattern = '{name}' + default_suffix + '{ext}'
+
+    now = datetime.now()
+    subs = {
+        'name': input_file.stem,
+        'stem': input_file.stem,
+        'ext':  input_file.suffix,
+        'date': now.strftime('%Y%m%d'),
+        'time': now.strftime('%H%M%S'),
+        'dt':   now.strftime('%Y%m%d_%H%M%S'),
+    }
+    new_name = pattern
+    for k, v in subs.items():
+        new_name = new_name.replace('{' + k + '}', v)
+
+    # 避免覆盖原文件
+    out_path = output_dir / new_name
+    return out_path
+
+
+def _collect_files(input_dir: Path, recursive: bool, include_pat: list, exclude_pat: list,
+                   wm):
+    """收集匹配的文件"""
+    supported = set(wm.supported_formats())
+    all_files = []
+
+    pattern = '**/*' if recursive else '*'
+    for ext in supported:
+        all_files.extend(input_dir.glob(f'{pattern}{ext}'))
+
+    # 去重
+    seen = set()
+    unique = []
+    for f in all_files:
+        if f not in seen:
+            seen.add(f)
+            unique.append(f)
+
+    # 扩展名过滤
+    if include_pat:
+        include_re = re.compile('|'.join(include_pat), re.IGNORECASE)
+        unique = [f for f in unique if include_re.search(f.suffix.lower())]
+
+    if exclude_pat:
+        exclude_re = re.compile('|'.join(exclude_pat), re.IGNORECASE)
+        unique = [f for f in unique if not exclude_re.search(f.suffix.lower())]
+
+    return sorted(unique)
+
+
+def _process_one(args_tuple):
+    """单文件处理（供线程池调用）"""
+    f, operation, watermark, out_path, dry_run = args_tuple
+
+    if dry_run:
+        return ('dryrun', str(f), out_path, None)
+
+    try:
+        if operation == 'embed':
+            if not watermark:
+                return ('skip', str(f), None, 'No watermark')
+            result = _BATCH_WM.embed(str(f), watermark, str(out_path))
+            ok = result.is_success
+            msg = result.message if not ok else None
+        elif operation == 'extract':
+            result = _BATCH_WM.extract(str(f))
+            ok = result.is_success
+            msg = result.message if not ok else None
+        elif operation == 'verify':
+            if not watermark:
+                return ('skip', str(f), None, 'No watermark')
+            result = _BATCH_WM.verify(str(f), watermark)
+            ok = result.is_valid
+            msg = result.message if not ok else None
+        else:
+            return ('skip', str(f), None, f'Unknown operation: {operation}')
+
+        status = 'success' if ok else 'failed'
+        return (status, str(f), str(out_path) if out_path else None, msg)
+    except Exception as e:
+        return ('failed', str(f), None, str(e))
+
+
+# 全局 watermark manager（避免每个文件重复初始化 handler）
+_BATCH_WM = None
+
+
 def cmd_batch(args):
-    """批量处理命令"""
+    global _BATCH_WM
     from tqdm import tqdm
-    
+
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir) if args.output_dir else None
-    
+
     if not input_dir.exists():
         _fail(f'Input directory not found: {input_dir}')
         return 1
-    
+
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # 收集文件
-    wm = StealthMark(password=args.password)
-    files = []
-    for ext in wm.supported_formats():
-        files.extend(input_dir.rglob(f'*{ext}'))
-    
-    if not files:
-        _warn(f'No supported files found in: {input_dir}')
+
+    # 验证 watermark
+    if args.operation in ('embed', 'verify') and not args.watermark:
+        _warn(f'Operation "{args.operation}" requires --watermark.')
         return 1
-    
+
+    # 统一 manager 实例（减少 handler 重复初始化）
+    _BATCH_WM = StealthMark(password=args.password)
+
+    # 收集文件
+    files = _collect_files(
+        input_dir,
+        recursive=not args.no_recursive,
+        include_pat=args.include,
+        exclude_pat=args.exclude,
+        wm=_BATCH_WM
+    )
+
+    if not files:
+        _warn(f'No matching files found in: {input_dir}')
+        return 1
+
+    # Dry-run: 只显示会处理的文件
+    if args.dry_run:
+        print(f'[{_C.CYAN}DRY RUN{_S.RESET_ALL}] Would process {len(files)} file(s):\n')
+        for f in files:
+            out_path = _build_output_path(f, output_dir or input_dir,
+                                          args.name_pattern, args.operation)
+            rel = f.relative_to(input_dir)
+            print(f'  {rel}  -->  {out_path.relative_to(output_dir or input_dir)}')
+        print(f'\nDry run: {len(files)} file(s) would be processed.')
+        return 0
+
     print(f'Found {len(files)} file(s). Processing...\n')
-    
-    results = {'success': 0, 'failed': 0, 'skipped': 0}
+
+    workers = getattr(args, 'workers', 4) or 4
+    quiet = getattr(args, 'quiet', False)
+
+    # 计算输出路径
+    work_items = []
+    for f in files:
+        out_path = _build_output_path(f, output_dir or input_dir,
+                                      args.name_pattern, args.operation)
+        work_items.append((f, args.operation, args.watermark, out_path,
+                            args.dry_run))
+
+    results = {'success': 0, 'failed': 0, 'skipped': 0, 'dryrun': 0}
     failed_list = []
-    
-    for f in tqdm(files, desc='Processing', unit='file', ncols=80):
-        try:
-            if args.operation == 'embed':
-                if not args.watermark:
-                    _warn('Missing --watermark for embed operation')
-                    return 1
-                
-                if output_dir:
-                    out_path = output_dir / f.name
-                else:
-                    out_path = str(f).replace(str(input_dir), str(output_dir or input_dir))
-                
-                result = wm.embed(str(f), args.watermark, out_path)
-            elif args.operation == 'extract':
-                result = wm.extract(str(f))
-            elif args.operation == 'verify':
-                if not args.watermark:
-                    _warn('Missing --watermark for verify operation')
-                    return 1
-                result = wm.verify(str(f), args.watermark)
+
+    # 并行处理
+    if workers > 1 and len(files) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_process_one, item): item for item in work_items}
+            for future in tqdm(as_completed(futures), total=len(futures),
+                               desc='Processing', unit='file', ncols=80):
+                outcome = future.result()
+                res_type = outcome[0]
+                results[res_type] = results.get(res_type, 0) + 1
+                if res_type == 'failed':
+                    failed_list.append((outcome[1], outcome[3]))
+                elif not quiet and res_type == 'success':
+                    fname = Path(outcome[1]).name
+                    out = outcome[2] if outcome[2] else outcome[1]
+                    print(f'  {_ok(Path(out).name)}  <--  {fname}')
+    else:
+        for item in tqdm(work_items, desc='Processing', unit='file', ncols=80):
+            outcome = _process_one(item)
+            res_type = outcome[0]
+            results[res_type] = results.get(res_type, 0) + 1
+            f_path = Path(outcome[1])
+            out_path = outcome[2] if outcome[2] else None
+
+            if res_type == 'dryrun':
+                pass
+            elif res_type == 'success':
+                if not quiet:
+                    disp_out = Path(out_path).name if out_path else f_path.name
+                    print(f'  {_ok(disp_out)}  <--  {f_path.name}')
+            elif res_type == 'skip':
+                if not quiet:
+                    print(f'  {_SKIP} {f_path.name}: {outcome[3]}')
             else:
-                continue
-            
-            if result.is_success if hasattr(result, 'is_success') else result.is_valid:
-                results['success'] += 1
-            else:
-                results['failed'] += 1
-                failed_list.append((str(f), result.message if hasattr(result, 'message') else 'unknown'))
-        except Exception as e:
-            results['failed'] += 1
-            failed_list.append((str(f), str(e)))
-    
-    print(f"\n{'─' * 50}")
-    _ok(f"Success:  {results['success']}")
-    _fail(f"Failed:   {results['failed']}")
-    
+                failed_list.append((outcome[1], outcome[3]))
+                if not quiet:
+                    print(f'  {_fail(f_path.name)}')
+
+    # 汇总
+    sep = '─' * 50
+    print(f'\n{sep}')
+    _ok (f'Success:  {results["success"]}')
+    _fail(f'Failed:   {results["failed"]}')
+    if results.get('skipped'):
+        _warn(f'Skipped:  {results["skipped"]}')
+
     if failed_list and (args.verbose or args.show_errors):
-        print(f"\n{_C.RED}Failed files:{_S.RESET_ALL}")
+        print(f'\n{_C.RED}Failed files:{_S.RESET_ALL}')
         for path, msg in failed_list:
             print(f'  {_FAIL} {Path(path).name}')
             print(f'       {msg}')
-    
+
     return 0 if results['failed'] == 0 else 1
 
 
 # ==================== 辅助函数 ====================
 
 def _confirm_overwrite(path):
-    """确认覆盖"""
     name = Path(path).name
-    resp = input(f'File exists: {name}. Overwrite? [y/N] ').strip().lower()
+    try:
+        resp = input(f'File exists: {name}. Overwrite? [y/N] ').strip().lower()
+    except EOFError:
+        resp = 'n'
     return resp in ('y', 'yes')
 
 
 def _show_traceback(result):
-    """显示详细错误追踪"""
-    # Result objects don't have traceback in current implementation
     print(f'\n{_C.RED}--- Error Details ---{_S.RESET_ALL}')
     print(f'  Status: {result.status}')
     print(f'  Message: {result.message}')
 
 
 def _show_handler_hint(suffix):
-    """显示格式提示"""
-    from src.core.base import WatermarkStatus
     hints = {
         '.pdf':  'PDF files embed watermark in metadata. Ensure file is not scanned.',
         '.docx': 'DOCX uses zero-width characters. Do not re-save as plain text.',
@@ -313,14 +458,16 @@ Examples:
   %(prog)s extract output.pdf
   %(prog)s verify output.pdf "MyWatermark"
   %(prog)s batch embed input_dir/ --watermark "Secret" -o output_dir/
+  %(prog)s batch verify input_dir/ --watermark "Secret" --include ".pdf" ".docx"
+  %(prog)s batch embed input/ -o output/ --workers 8 --dry-run
         '''
     )
-    
+
     parser.add_argument('-p', '--password', type=str, default=None,
                         help='Watermark encryption password')
-    
+
     subparsers = parser.add_subparsers(dest='command', help='Commands')
-    
+
     # --- embed ---
     embed_parser = subparsers.add_parser('embed', help='Embed watermark')
     embed_parser.add_argument('-v', '--verbose', action='store_true',
@@ -333,7 +480,7 @@ Examples:
     embed_parser.add_argument('-f', '--force', action='store_true',
                               help='Force overwrite without confirmation')
     embed_parser.set_defaults(func=cmd_embed)
-    
+
     # --- extract ---
     extract_parser = subparsers.add_parser('extract', help='Extract watermark')
     extract_parser.add_argument('-v', '--verbose', action='store_true',
@@ -342,7 +489,7 @@ Examples:
                                 help='Suppress non-error output')
     extract_parser.add_argument('file', help='File containing watermark')
     extract_parser.set_defaults(func=cmd_extract)
-    
+
     # --- verify ---
     verify_parser = subparsers.add_parser('verify', help='Verify watermark')
     verify_parser.add_argument('-v', '--verbose', action='store_true',
@@ -352,8 +499,7 @@ Examples:
     verify_parser.add_argument('file', help='File to verify')
     verify_parser.add_argument('watermark', help='Original watermark text')
     verify_parser.set_defaults(func=cmd_verify)
-    
-    # --- info ---
+
     # --- info ---
     info_parser = subparsers.add_parser('info', help='Show supported formats')
     info_parser.add_argument('-v', '--verbose', action='store_true',
@@ -361,8 +507,8 @@ Examples:
     info_parser.add_argument('-q', '--quiet', action='store_true',
                               help='Suppress non-error output')
     info_parser.set_defaults(func=cmd_info)
-    
-    # --- batch ---
+
+    # --- batch (Stage 2) ---
     batch_parser = subparsers.add_parser('batch', help='Batch process multiple files')
     batch_parser.add_argument('operation', choices=['embed', 'extract', 'verify'],
                               help='Operation to perform')
@@ -375,19 +521,38 @@ Examples:
                               help='Show detailed logs')
     batch_parser.add_argument('-q', '--quiet', action='store_true',
                               help='Suppress non-error output')
+    # Stage 2 new options
+    batch_parser.add_argument('-n', '--name-pattern',
+                              default=None,
+                              help=('Output naming pattern. Placeholders: {name}, {ext}, '
+                                    '{stem}, {date}, {time}, {dt}. '
+                                    'Default: {{name}}_wm{{ext}} for embed, '
+                                    '{{name}}_out{{ext}} for extract/verify'))
+    batch_parser.add_argument('--include', nargs='+', default=None,
+                              metavar='EXT',
+                              help='Only process files with these extensions (e.g. .pdf .docx)')
+    batch_parser.add_argument('--exclude', nargs='+', default=None,
+                              metavar='EXT',
+                              help='Exclude files with these extensions')
+    batch_parser.add_argument('--no-recursive', action='store_true',
+                              help='Do not scan subdirectories')
+    batch_parser.add_argument('--dry-run', action='store_true',
+                              help='Show what would be processed without doing it')
+    batch_parser.add_argument('--workers', type=int, default=4,
+                              help='Number of parallel workers (default: 4, use 1 for sequential)')
     batch_parser.set_defaults(func=cmd_batch)
-    
+
     args = parser.parse_args()
-    
+
     setup_logging(
         verbose=getattr(args, 'verbose', False),
         quiet=getattr(args, 'quiet', False)
     )
-    
+
     if getattr(args, 'command', None) is None:
         parser.print_help()
         return 1
-    
+
     return args.func(args)
 
 
