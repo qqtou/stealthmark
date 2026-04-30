@@ -57,7 +57,7 @@ class StealthMark:
         )
         from ..media import (
             WAVHandler, MP3Handler, VideoHandler,
-            FLACHandler, AACHandler, WebMHandler, WMVHandler
+            FLACHandler, AACHandler, WebMHandler, WMVHandler, OGGHandler
         )
         
         handler_classes = [
@@ -69,7 +69,7 @@ class StealthMark:
             PNGHandler, BMPHandler, JPEGHandler,
             TIFFHandler, WebPHandler, GIFHandler, HEICHandler,
             # 音频处理器
-            WAVHandler, MP3Handler, FLACHandler, AACHandler,
+            WAVHandler, MP3Handler, FLACHandler, AACHandler, OGGHandler,
             # 视频处理器
             VideoHandler, WebMHandler, WMVHandler,
         ]
