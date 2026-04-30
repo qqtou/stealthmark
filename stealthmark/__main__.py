@@ -3,85 +3,71 @@
 StealthMark 命令行入口
 
 Usage:
-    python -m stealthmark embed <input> <watermark> <output>
+    python -m stealthmark embed <input> <watermark> -o <output>
     python -m stealthmark extract <file>
     python -m stealthmark verify <file> <watermark>
+    python -m stealthmark info
+    python -m stealthmark batch embed <dir> --watermark <text>
 """
 
 import sys
-import argparse
 from pathlib import Path
 
-from src.core.manager import StealthMark
+# 将项目 src 目录加入 path
+_src = str(Path(__file__).resolve().parent.parent / 'src')
+if _src not in sys.path:
+    sys.path.insert(0, _src)
 
+# 复用根目录 cli.py 的完整实现
+_project_root = str(Path(__file__).resolve().parent.parent)
+_cli_path = Path(_project_root) / 'cli.py'
 
-def cmd_embed(args):
-    """嵌入水印"""
-    wm = StealthMark()
-    result = wm.embed(
-        args.input,
-        args.watermark,  # 直接传字符串
-        args.output
-    )
-    print(f"嵌入{result.status.value}: {result.message}")
-    return 0 if result.is_success else 1
+if _cli_path.exists():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("stealthmark_cli", str(_cli_path))
+    cli_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli_mod)
+    sys.exit(cli_mod.main())
+else:
+    # fallback: 简化 CLI
+    from src.core.manager import StealthMark
+    import argparse
 
+    def main():
+        parser = argparse.ArgumentParser(description="StealthMark 隐形水印工具")
+        subparsers = parser.add_subparsers(dest="command")
 
-def cmd_extract(args):
-    """提取水印"""
-    wm = StealthMark()
-    result = wm.extract(args.file)
-    print(f"提取{result.status.value}: {result.message}")
-    if result.watermark:
-        print(f"水印内容: {result.watermark.content}")
-    return 0 if result.is_success else 1
+        embed_p = subparsers.add_parser("embed")
+        embed_p.add_argument("input")
+        embed_p.add_argument("watermark")
+        embed_p.add_argument("-o", "--output")
 
+        extract_p = subparsers.add_parser("extract")
+        extract_p.add_argument("file")
 
-def cmd_verify(args):
-    """验证水印"""
-    wm = StealthMark()
-    result = wm.verify(args.file, args.watermark)  # 直接传字符串
-    print(f"验证{result.status.value}: {result.message}")
-    if result.is_valid:
-        print("✓ 水印匹配")
-    else:
-        print("✗ 水印不匹配")
-    return 0 if result.is_valid else 1
+        verify_p = subparsers.add_parser("verify")
+        verify_p.add_argument("file")
+        verify_p.add_argument("watermark")
 
+        args = parser.parse_args()
+        if not args.command:
+            parser.print_help()
+            return 1
 
-def main():
-    parser = argparse.ArgumentParser(description="StealthMark 隐形水印工具")
-    subparsers = parser.add_subparsers(dest="command", help="命令")
-    
-    # embed
-    embed_parser = subparsers.add_parser("embed", help="嵌入水印")
-    embed_parser.add_argument("input", help="输入文件")
-    embed_parser.add_argument("watermark", help="水印内容")
-    embed_parser.add_argument("output", help="输出文件")
-    
-    # extract
-    extract_parser = subparsers.add_parser("extract", help="提取水印")
-    extract_parser.add_argument("file", help="文件名")
-    
-    # verify
-    verify_parser = subparsers.add_parser("verify", help="验证水印")
-    verify_parser.add_argument("file", help="文件名")
-    verify_parser.add_argument("watermark", help="原始水印内容")
-    
-    args = parser.parse_args()
-    
-    if not args.command:
-        parser.print_help()
-        return 1
-    
-    commands = {
-        "embed": cmd_embed,
-        "extract": cmd_extract,
-        "verify": cmd_verify
-    }
-    
-    return commands[args.command](args)
+        wm = StealthMark()
+        if args.command == "embed":
+            r = wm.embed(args.input, args.watermark, args.output)
+            print(f"{'OK' if r.is_success else 'FAIL'}: {r.message}")
+            return 0 if r.is_success else 1
+        elif args.command == "extract":
+            r = wm.extract(args.file)
+            print(f"{'OK' if r.is_success else 'FAIL'}: {r.message}")
+            if r.watermark:
+                print(f"Watermark: {r.watermark.content}")
+            return 0 if r.is_success else 1
+        elif args.command == "verify":
+            r = wm.verify(args.file, args.watermark)
+            print(f"{'PASS' if r.is_valid else 'FAIL'}: {r.message}")
+            return 0 if r.is_valid else 1
 
-
-if __name__ == "__main__":
     sys.exit(main())

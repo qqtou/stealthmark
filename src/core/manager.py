@@ -120,6 +120,17 @@ class StealthMark:
         
         watermark_data = WatermarkData(content=watermark)
         result = handler.embed(file_path, watermark_data, output_path, **kwargs)
+        
+        # 兜底：部分 handler 未设置 output_path，用调用参数补全
+        if result.is_success and result.output_path is None:
+            result = EmbedResult(
+                status=result.status,
+                message=result.message,
+                file_path=result.file_path,
+                output_path=output_path,
+                watermark_id=result.watermark_id
+            )
+        
         return result
     
     def extract(self, file_path: str, **kwargs) -> ExtractResult:

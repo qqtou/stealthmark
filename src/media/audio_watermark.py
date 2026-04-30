@@ -557,14 +557,16 @@ class MP3Handler(BaseHandler):
             return EmbedResult(
                 status=WatermarkStatus.SUCCESS,
                 message='Watermark embedded in ID3 TXXX frame',
-                file_path=output_path
+                file_path=output_path,
+                output_path=output_path
             )
 
         # Fallback: rename file with watermark in path
         return EmbedResult(
             status=WatermarkStatus.FAILED,
             message='ID3 write failed, fallback not implemented',
-            file_path=output_path
+            file_path=output_path,
+            output_path=output_path
         )
 
     def extract(self, file_path, **kwargs):

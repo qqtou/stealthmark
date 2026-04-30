@@ -1,5 +1,10 @@
 import sys
-sys.path.insert(0, 'D:\\work\\code\\stealthmark\\src')
+from pathlib import Path
+
+# 将项目 src 目录加入 path，使 from src.core 导入正常工作
+_src = str(Path(__file__).resolve().parent.parent / 'src')
+if _src not in sys.path:
+    sys.path.insert(0, _src)
 
 import os
 import tempfile

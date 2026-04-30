@@ -270,12 +270,16 @@ def _process_one(args_tuple):
         return ('dryrun', str(f), out_path, None)
 
     try:
+        actual_out = str(out_path) if out_path else None
         if operation == 'embed':
             if not watermark:
                 return ('skip', str(f), None, 'No watermark')
             result = _BATCH_WM.embed(str(f), watermark, str(out_path))
             ok = result.is_success
             msg = result.message if not ok else None
+            # handler 可能改变输出路径（如 .aac → .m4a），用实际路径
+            if ok and result.output_path:
+                actual_out = result.output_path
         elif operation == 'extract':
             result = _BATCH_WM.extract(str(f))
             ok = result.is_success
@@ -290,7 +294,7 @@ def _process_one(args_tuple):
             return ('skip', str(f), None, f'Unknown operation: {operation}')
 
         status = 'success' if ok else 'failed'
-        return (status, str(f), str(out_path) if out_path else None, msg)
+        return (status, str(f), actual_out, msg)
     except Exception as e:
         return ('failed', str(f), None, str(e))
 
