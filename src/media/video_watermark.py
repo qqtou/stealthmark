@@ -51,8 +51,8 @@ class VideoHandler(BaseHandler):
     SUPPORTED_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov')
     HANDLER_NAME = "video"
     
-    # 水印同步头: 0xAA = 10101010, 重复4次
-    SYNC_PATTERN = bytes([0xAA] * 4)
+    # 水印同步头: 0xAA = 10101010, 重复8次（冗余）
+    SYNC_PATTERN = bytes([0xAA] * 8)
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
@@ -136,19 +136,44 @@ class VideoHandler(BaseHandler):
                     file_path=file_path
                 )
             
-            # 嵌入: 修改Blue通道 (index 2) 的LSB
+            # 多帧嵌入: 分散到前3帧，防止单帧损坏
+            total_bits = len(bits)
+            target_frames = min(3, len(frames))
+            per_frame_bits = total_bits // target_frames
             bit_idx = 0
-            for i in range(h):
-                for j in range(w):
-                    if bit_idx >= len(bits):
+            
+            for f_idx in range(target_frames):
+                # 计算该帧的比特范围
+                start = f_idx * per_frame_bits
+                if f_idx == target_frames - 1:
+                    # 最后一帧包含所有剩余比特
+                    frame_bits = bits[start:]
+                else:
+                    frame_bits = bits[start:start+per_frame_bits]
+                
+                # 获取该帧并复制
+                frame = frames[f_idx].copy()
+                h_f, w_f = frame.shape[0], frame.shape[1]
+                logger.debug(f"Embedding into frame {f_idx}: {len(frame_bits)} bits")
+                
+                # 在该帧的Blue通道嵌入比特
+                bit_pos = 0
+                for i in range(h_f):
+                    for j in range(w_f):
+                        if bit_pos >= len(frame_bits):
+                            break
+                        # Blue通道LSB
+                        frame[i, j, 2] = (int(frame[i, j, 2]) & 0xFE) | int(frame_bits[bit_pos])
+                        bit_pos += 1
+                    if bit_pos >= len(frame_bits):
                         break
-                    # Blue通道LSB
-                    first_frame[i, j, 2] = (int(first_frame[i, j, 2]) & 0xFE) | int(bits[bit_idx])
-                    bit_idx += 1
-                if bit_idx >= len(bits):
+                
+                frames[f_idx] = frame
+                bit_idx += len(frame_bits)
+                if bit_idx >= total_bits:
                     break
             
-            frames[0] = first_frame
+            logger.debug(f"Embedded {bit_idx} bits across {target_frames} frames")
             logger.debug(f"Embedded {bit_idx} bits into frame 0 Blue channel")
             
             # 写入: 用ffmpeg无损编码

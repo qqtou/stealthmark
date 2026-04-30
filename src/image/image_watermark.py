@@ -93,7 +93,7 @@ class ImageLSBHandler(BaseHandler):
     
     def _embed_bits(self, image: 'Image.Image', bits: list) -> 'Image.Image':
         """
-        将比特序列嵌入到图像LSB
+        将比特序列嵌入到图像LSB（每个比特嵌3个像素，冗余）
         
         Args:
             image: PIL Image对象
@@ -101,26 +101,26 @@ class ImageLSBHandler(BaseHandler):
         
         Returns:
             Image.Image: 嵌入后的图像
-        
-        原理:
-            遍历像素，将每个比特嵌入到像素的最低位。
         """
         # 转换为numpy数组
         img_array = np.array(image)
         original_shape = img_array.shape
         flat = img_array.flatten()
         
-        # 嵌入比特
+        # 每个比特嵌3个像素（冗余）
         bit_idx = 0
-        for i in range(len(flat)):
-            if bit_idx >= len(bits):
-                break
-            
-            # LSB嵌入: 清除最低位，设置新位
-            if bits[bit_idx] == 1:
-                flat[i] = flat[i] | 1   # 设置最低位为1
-            else:
-                flat[i] = flat[i] & 0xFE  # 清除最低位
+        pixel_idx = 0
+        while bit_idx < len(bits) and pixel_idx < len(flat):
+            bit = bits[bit_idx]
+            # 重复3次
+            for _ in range(3):
+                if pixel_idx >= len(flat):
+                    break
+                if bit == 1:
+                    flat[pixel_idx] = flat[pixel_idx] | 1
+                else:
+                    flat[pixel_idx] = flat[pixel_idx] & 0xFE
+                pixel_idx += 1
             bit_idx += 1
         
         # 重塑并返回
@@ -129,7 +129,7 @@ class ImageLSBHandler(BaseHandler):
     
     def _extract_bits(self, image: 'Image.Image', num_bits: int) -> list:
         """
-        从图像LSB提取比特序列
+        从图像LSB提取比特序列（每3像素投票1比特）
         
         Args:
             image: PIL Image对象
@@ -142,9 +142,19 @@ class ImageLSBHandler(BaseHandler):
         flat = img_array.flatten()
         
         bits = []
-        for i in range(min(num_bits, len(flat))):
-            bits.append(flat[i] & 1)  # 提取最低位
-        
+        pixel_idx = 0
+        while len(bits) < num_bits and pixel_idx < len(flat):
+            # 每3个像素投票
+            votes = []
+            for _ in range(3):
+                if pixel_idx >= len(flat):
+                    break
+                votes.append(flat[pixel_idx] & 1)
+                pixel_idx += 1
+            if votes:
+                # 多数投票
+                bit = 1 if sum(votes) > len(votes)//2 else 0
+                bits.append(bit)
         return bits
     
     def _calculate_capacity(self, image: 'Image.Image') -> int:
