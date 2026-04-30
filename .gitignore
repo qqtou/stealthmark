@@ -23,6 +23,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.workbuddy
 
 # PyInstaller
 *.manifest
@@ -66,14 +67,8 @@ venv.bak/
 *.swo
 *~
 
-# Project specific
+# Project specific - test fixtures
 tests/fixtures/out*
-*.mp4
-*.wav
-*.avi
-*.mov
-*.webm
-*.wmv
-
-# Keep test fixtures but not outputs
+tests/fixtures/*_out.*
+tests/fixtures/*_out_*
 !tests/fixtures/test.*

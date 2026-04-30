@@ -44,9 +44,11 @@ import logging
 try:
     from PIL import Image
     import numpy as np
+    import cv2
 except ImportError:
     Image = None
     np = None
+    cv2 = None
 
 from ..core.base import (
     BaseHandler, WatermarkData, WatermarkStatus,
@@ -653,6 +655,195 @@ class JPEGHandler(BaseHandler):
         
         logger.info(f"JPEG verify result: valid={is_match}")
         return result
+
+
+class HEICHandler(JPEGHandler):
+    """
+    HEIC图片水印处理器
+    
+    HEIC格式使用与JPEG相同的DCT域水印方法，但使用Pillow读取HEIC文件。
+    
+    处理流程:
+    - 使用Pillow + pillow-heif读取HEIC为RGB
+    - 转换为OpenCV格式(BGR)进行DCT变换
+    - 在DCT系数中嵌入水印
+    - 逆DCT变换并保存回HEIC
+    
+    注意: 需要安装 pillow-heif 库支持HEIC读写
+    """
+    
+    SUPPORTED_EXTENSIONS = ('.heic', '.heif')
+    HANDLER_NAME = "heic"
+    
+    # 同步头，用于提取时定位水印
+    SYNC_PATTERN = bytes([0xAA] * 4)
+    
+    def _load_image(self, file_path: str):
+        """使用Pillow加载HEIC图片，返回OpenCV格式的numpy数组"""
+        from PIL import Image
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError:
+            raise ImportError("需要安装pillow-heif库: pip install pillow-heif")
+        
+        # 使用Pillow打开HEIC
+        pil_img = Image.open(file_path)
+        # 转换为RGB
+        if pil_img.mode != 'RGB':
+            pil_img = pil_img.convert('RGB')
+        # 转换为numpy数组 (RGB)
+        img_array = np.array(pil_img)
+        # 转换为BGR (OpenCV格式)
+        return cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    
+    def _save_image(self, img_array: np.ndarray, output_path: str, quality: int = 95):
+        """使用Pillow保存为HEIC格式"""
+        from PIL import Image
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError:
+            raise ImportError("需要安装pillow-heif库: pip install pillow-heif")
+        
+        # 转换BGR到RGB
+        rgb_array = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
+        # 创建Pillow图像
+        pil_img = Image.fromarray(rgb_array)
+        # 保存为HEIC
+        pil_img.save(output_path, 'HEIF', quality=quality)
+    
+    def embed(self, file_path: str, watermark: WatermarkData, 
+              output_path: str, **kwargs) -> EmbedResult:
+        """向HEIC图片嵌入水印"""
+        logger.info(f"HEIC embed: {file_path}")
+        
+        try:
+            # 加载图片
+            img = self._load_image(file_path)
+            
+            # 准备水印数据
+            if hasattr(watermark, 'content'):
+                text = watermark.content
+            else:
+                text = str(watermark)
+            
+            encoded = self.codec.encode(text)
+            payload = self.SYNC_PATTERN + encoded
+            bits = [int(b) for b in ''.join(format(b, '08b') for b in payload)]
+            
+            # DCT嵌入 (复用父类逻辑)
+            ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+            y_channel = ycrcb[:, :, 0].astype(np.float32)
+            
+            h, w = y_channel.shape
+            block_h, block_w = h // 8, w // 8
+            
+            if block_h * block_w < len(bits):
+                return EmbedResult(
+                    status=WatermarkStatus.FAILED,
+                    message=f"图片太小，需要至少{len(bits)}个8x8块",
+                    file_path=file_path
+                )
+            
+            # 嵌入比特到DCT系数
+            bit_idx = 0
+            for i in range(block_h):
+                for j in range(block_w):
+                    if bit_idx >= len(bits):
+                        break
+                    block = y_channel[i*8:(i+1)*8, j*8:(j+1)*8]
+                    dct_block = cv2.dct(block)
+                    dct_block[2, 3] = (dct_block[2, 3] // 10) * 10 + bits[bit_idx] * 5
+                    y_channel[i*8:(i+1)*8, j*8:(j+1)*8] = cv2.idct(dct_block)
+                    bit_idx += 1
+                if bit_idx >= len(bits):
+                    break
+            
+            ycrcb[:, :, 0] = y_channel.astype(np.uint8)
+            watermarked = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+            
+            # 保存
+            self._save_image(watermarked, output_path)
+            
+            logger.info(f"HEIC embed success: {bit_idx} bits")
+            return self._create_success_result(output_path)
+            
+        except Exception as e:
+            logger.error(f"HEIC embed failed: {e}")
+            return EmbedResult(
+                status=WatermarkStatus.FAILED,
+                message=f"嵌入失败: {e}",
+                file_path=file_path
+            )
+    
+    def extract(self, file_path: str, **kwargs) -> ExtractResult:
+        """从HEIC图片提取水印"""
+        logger.info(f"HEIC extract: {file_path}")
+        
+        try:
+            # 加载图片
+            img = self._load_image(file_path)
+            
+            # 提取DCT系数
+            ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+            y_channel = ycrcb[:, :, 0].astype(np.float32)
+            
+            h, w = y_channel.shape
+            block_h, block_w = h // 8, w // 8
+            
+            # 提取所有比特
+            bits = []
+            for i in range(block_h):
+                for j in range(block_w):
+                    block = y_channel[i*8:(i+1)*8, j*8:(j+1)*8]
+                    dct_block = cv2.dct(block)
+                    bit = 1 if (dct_block[2, 3] % 10) >= 5 else 0
+                    bits.append(bit)
+            
+            # 转换为字节
+            data_bytes = bytearray()
+            for i in range(0, len(bits) - 7, 8):
+                byte_val = 0
+                for j in range(8):
+                    byte_val = (byte_val << 1) | bits[i + j]
+                data_bytes.append(byte_val)
+            
+            # 查找同步头
+            try:
+                sync_idx = data_bytes.index(0xAA)
+                while sync_idx < len(data_bytes) - 3 and data_bytes[sync_idx:sync_idx+4] != self.SYNC_PATTERN:
+                    sync_idx = data_bytes.index(0xAA, sync_idx + 1)
+                payload_start = sync_idx + 4
+            except (ValueError, IndexError):
+                return ExtractResult(
+                    status=WatermarkStatus.EXTRACTION_FAILED,
+                    message="未找到同步头",
+                    file_path=file_path
+                )
+            
+            # 解码
+            success, content, details = self.codec.decode(bytes(data_bytes[payload_start:]))
+            if success:
+                return ExtractResult(
+                    status=WatermarkStatus.SUCCESS,
+                    watermark=WatermarkData(content=content),
+                    file_path=file_path
+                )
+            else:
+                return ExtractResult(
+                    status=WatermarkStatus.EXTRACTION_FAILED,
+                    message=f"解码失败: {details.get('error', '未知')}",
+                    file_path=file_path
+                )
+                
+        except Exception as e:
+            logger.error(f"HEIC extract failed: {e}")
+            return ExtractResult(
+                status=WatermarkStatus.EXTRACTION_FAILED,
+                message=str(e),
+                file_path=file_path
+            )
 
 
 # 模块初始化日志

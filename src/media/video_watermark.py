@@ -60,6 +60,33 @@ class VideoHandler(BaseHandler):
         self.ffmpeg_path = get_ffmpeg_path()
         logger.debug(f"VideoHandler: ffmpeg={self.ffmpeg_path}")
     
+    def _prepare_data_bits(self, watermark) -> Optional[list]:
+        """
+        准备水印数据比特序列
+        
+        Args:
+            watermark: 水印数据
+            
+        Returns:
+            list: 比特列表，失败返回None
+        """
+        try:
+            # 转换水印数据
+            if hasattr(watermark, 'content'):
+                text = watermark.content
+            else:
+                text = str(watermark)
+            
+            # 编码: 同步头 + codec编码数据
+            encoded = self.codec.encode(text)
+            payload = self.SYNC_PATTERN + encoded
+            bits = [int(b) for b in ''.join(format(b, '08b') for b in payload)]
+            logger.debug(f"Prepared {len(bits)} bits from watermark")
+            return bits
+        except Exception as e:
+            logger.error(f"Failed to prepare data bits: {e}")
+            return None
+    
     def embed(self, file_path: str, watermark,
               output_path: str, **kwargs) -> EmbedResult:
         """嵌入不可见水印到视频"""
@@ -331,6 +358,37 @@ class VideoHandler(BaseHandler):
             is_integrity_ok=False,
             match_score=0.0
         )
+
+
+class WebMHandler(VideoHandler):
+    """
+    WebM视频水印处理器
+    
+    继承VideoHandler的RGB LSB方法，使用WebM特定编码器(vp8/vp9)。
+    
+    编码器选择:
+    - libvpx-vp9: 更好的压缩率
+    - libvpx: VP8编码器(备选)
+    
+    注意: 当前版本直接使用父类embed方法，编码器由imageio自动选择
+    """
+    
+    SUPPORTED_EXTENSIONS = ('.webm',)
+    HANDLER_NAME = "webm"
+
+
+class WMVHandler(VideoHandler):
+    """
+    WMV视频水印处理器
+    
+    继承VideoHandler的RGB LSB方法。
+    
+    注意: WMV是有损格式，水印鲁棒性较差，建议仅用于测试。
+    当前版本直接使用父类embed方法。
+    """
+    
+    SUPPORTED_EXTENSIONS = ('.wmv',)
+    HANDLER_NAME = "wmv"
 
 
 logger.info(f"{__name__} module loaded - Video handler (RGB LSB)")

@@ -13,10 +13,11 @@ Date: 2026-04-28
 
 import os
 import subprocess
-import json
 import logging
 import tempfile
 from typing import Optional, Dict, Any
+
+import av
 
 from ..core.base import (
     BaseHandler, WatermarkData, WatermarkStatus,
@@ -106,25 +107,9 @@ class WMVHandler(BaseHandler):
             return ExtractResult(status=error_result.status, message=error_result.message, file_path=file_path)
         
         try:
-            # Use ffprobe to read metadata
-            cmd = [
-                self.ffmpeg_path.replace('ffmpeg', 'ffprobe'),
-                '-v', 'quiet',
-                '-print_format', 'json',
-                '-show_format',
-                file_path
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                return ExtractResult(
-                    status=WatermarkStatus.EXTRACTION_FAILED,
-                    message="ffprobe执行失败",
-                    file_path=file_path
-                )
-            
-            probe = json.loads(result.stdout)
-            tags = probe.get('format', {}).get('tags', {})
+            # Use PyAV to read metadata (no ffprobe needed)
+            with av.open(file_path) as container:
+                tags = container.metadata or {}
             
             # Search for SMMark in tags (case-insensitive)
             smmark = None

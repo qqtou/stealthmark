@@ -16,6 +16,7 @@ import tempfile
 import numpy as np
 
 from .audio_watermark import WAVHandler
+from ..core.base import WatermarkData, EmbedResult, ExtractResult, WatermarkStatus
 
 logger = logging.getLogger(__name__)
 
@@ -162,10 +163,23 @@ class AACHandler(WAVHandler):
     HANDLER_NAME = "aac"
 
     def embed(self, file_path: str, watermark, output_path: str, **kwargs):
-        """重写 embed：用 PyAV 读取 + ffmpeg 写入"""
+        """重写 embed：用 PyAV 读取 + ffmpeg 写入
+
+        注意：扩频水印信号极其微弱（alpha=0.005），有损编码会完全抹除水印。
+        因此必须使用无损编码。ALAC (Apple Lossless) 是最佳选择，但 ALAC 只能封装在
+        M4A/MP4 容器中，不能写入 .aac 文件（.aac 是原始 AAC 比特流）。
+        当输出路径为 .aac 时，自动改为 .m4a。
+        """
         from src.core.base import EmbedResult, WatermarkStatus
 
         logger.info(f"AAC embed: {file_path} -> {output_path}")
+
+        # 强制使用 M4A 输出格式：ALAC 编码器只能封装在 M4A/MP4 容器中
+        # .aac 是裸 AAC 比特流，无法承载 ALAC 数据
+        if not output_path.lower().endswith('.m4a'):
+            base, _ = os.path.splitext(output_path)
+            output_path = base + '.m4a'
+            logger.info(f"AAC: output forced to M4A format -> {output_path}")
 
         # 依赖检查
         if not self._check_dependency('av', 'pyav'):
@@ -317,11 +331,17 @@ class AACHandler(WAVHandler):
                     byte = (byte << 1) | bit
                 byte_data.append(byte)
 
-            content = self.codec.decode(bytes(byte_data))
+            success, content, details = self.codec.decode(bytes(byte_data))
+            if not success:
+                return ExtractResult(
+                    status=WatermarkStatus.EXTRACTION_FAILED,
+                    message=f"解码失败: {details.get('error', '未知')}",
+                    file_path=file_path
+                )
             return ExtractResult(
                 status=WatermarkStatus.SUCCESS,
                 message="提取成功",
-                watermark=content,
+                watermark=WatermarkData(content=content),
                 file_path=file_path
             )
 
