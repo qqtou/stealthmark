@@ -114,6 +114,26 @@ result = wm.verify("output.pdf", "原始水印")
 print(f"验证结果: {result.is_valid}")
 ```
 
+## GUI 图形界面
+
+需要 PyQt6：
+```bash
+pip install PyQt6
+```
+
+启动 GUI：
+```bash
+python -m stealthmark.gui
+```
+
+功能：
+- 文件/文件夹选择 + 拖放
+- 支持嵌入、提取、验证三种模式
+- 批量处理 + 进度条
+- 结果表格（颜色区分成功/失败）
+- 可选加密（密码字段）
+- 自定义输出文件名模式（`{name}`、`{ext}` 占位符）
+
 ## 命令行
 
 ```bash
@@ -163,6 +183,45 @@ wm.batch_extract(directory)
 - **音频/视频**：处理时间随文件长度增加
 - **PDF**：元数据可能被专业工具清理
 - **视频**：输出为无损编码，文件较大
+
+## Web API
+
+需要 FastAPI + Uvicorn：
+```bash
+pip install fastapi uvicorn
+```
+
+启动 API 服务：
+```bash
+uvicorn stealthmark.api:app --reload --port 8000
+```
+
+访问交互式文档：http://localhost:8000/docs
+
+**主要端点**
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/health` | GET | 健康检查 |
+| `/info` | GET | 支持格式列表 |
+| `/embed` | POST | 嵌入水印（multipart/form-data） |
+| `/extract` | POST | 提取水印 |
+| `/verify` | POST | 验证水印 |
+| `/batch` | POST | 批量处理 |
+
+**请求示例**（embed）：
+```bash
+curl -X POST http://localhost:8000/embed \
+  -F "file=@document.pdf" \
+  -F "watermark=版权所有 2026"
+```
+
+**请求示例**（verify）：
+```bash
+curl -X POST http://localhost:8000/verify \
+  -F "file=@output.pdf" \
+  -F "watermark=版权所有 2026"
+```
 
 ## 许可证
 
