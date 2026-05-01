@@ -22,7 +22,9 @@ from .core.base import WatermarkStatus
 
 try:
     from colorama import init, Fore, Style
-    init(autoreset=True)
+    import sys as _sys
+    # TTY 下保留颜色，非 TTY 下自动移除 ANSI 转义码但保留文本
+    init(autoreset=True, strip=not _sys.stdout.isatty())
     _HAS_COLORAMA = True
 except ImportError:
     _HAS_COLORAMA = False
@@ -47,11 +49,16 @@ def _color(text, color):
     return f'{color}{text}{_S.RESET_ALL}' if _HAS_COLORAMA else text
 
 
-def _ok(text):    return _color(f'{_OK} {text}',   _C.GREEN  + _S.BRIGHT)
-def _fail(text):  return _color(f'{_FAIL} {text}', _C.RED    + _S.BRIGHT)
-def _info(text):  return _color(f'{_INFO} {text}',  _C.CYAN   + _S.BRIGHT)
-def _warn(text):  return _color(f'{_WARN} {text}', _C.YELLOW + _S.BRIGHT)
-def _dim(text):   return _color(text,               _C.WHITE  + _S.DIM)
+def _ok(text):    print(_color(f'{_OK} {text}',   _C.GREEN  + _S.BRIGHT))
+def _fail(text):  print(_color(f'{_FAIL} {text}', _C.RED    + _S.BRIGHT))
+def _info(text):  print(_color(f'{_INFO} {text}',  _C.CYAN   + _S.BRIGHT))
+def _warn(text):  print(_color(f'{_WARN} {text}', _C.YELLOW + _S.BRIGHT))
+def _dim(text):   print(_color(text,               _C.WHITE  + _S.DIM))
+
+# 保留纯字符串版本供内嵌使用（如 print(f'  {_ok_str(...)}')  ）
+def _ok_str(text):    return _color(f'{_OK} {text}',   _C.GREEN  + _S.BRIGHT)
+def _fail_str(text):  return _color(f'{_FAIL} {text}', _C.RED    + _S.BRIGHT)
+def _warn_str(text):  return _color(f'{_WARN} {text}', _C.YELLOW + _S.BRIGHT)
 
 
 def setup_logging(verbose: bool = False, quiet: bool = False):
@@ -60,7 +67,7 @@ def setup_logging(verbose: bool = False, quiet: bool = False):
     elif verbose:
         level = logging.DEBUG
     else:
-        level = logging.INFO
+        level = logging.WARNING  # 默认只显示 WARNING+，-v 才开 DEBUG
 
     root = logging.getLogger()
     if root.handlers:
@@ -72,6 +79,11 @@ def setup_logging(verbose: bool = False, quiet: bool = False):
         datefmt='%H:%M:%S',
         force=True
     )
+
+    # 第三方库日志级别单独控制，避免 INFO 泄漏到默认输出
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 
 # ==================== 核心命令 ====================
@@ -379,7 +391,7 @@ def cmd_batch(args):
                 elif not quiet and res_type == 'success':
                     fname = Path(outcome[1]).name
                     out = outcome[2] if outcome[2] else outcome[1]
-                    print(f'  {_ok(Path(out).name)}  <--  {fname}')
+                    print(f'  {_ok_str(Path(out).name)}  <--  {fname}')
     else:
         for item in tqdm(work_items, desc='Processing', unit='file', ncols=80):
             outcome = _process_one(item)
@@ -393,22 +405,22 @@ def cmd_batch(args):
             elif res_type == 'success':
                 if not quiet:
                     disp_out = Path(out_path).name if out_path else f_path.name
-                    print(f'  {_ok(disp_out)}  <--  {f_path.name}')
+                    print(f'  {_ok_str(disp_out)}  <--  {f_path.name}')
             elif res_type == 'skip':
                 if not quiet:
                     print(f'  {_SKIP} {f_path.name}: {outcome[3]}')
             else:
                 failed_list.append((outcome[1], outcome[3]))
                 if not quiet:
-                    print(f'  {_fail(f_path.name)}')
+                    print(f'  {_fail_str(f_path.name)}')
 
     # 汇总
     sep = '─' * 50
     print(f'\n{sep}')
-    _ok (f'Success:  {results["success"]}')
-    _fail(f'Failed:   {results["failed"]}')
+    print(_ok_str(f'Success:  {results["success"]}'))
+    print(_fail_str(f'Failed:   {results["failed"]}'))
     if results.get('skipped'):
-        _warn(f'Skipped:  {results["skipped"]}')
+        print(_warn_str(f'Skipped:  {results["skipped"]}'))
 
     if failed_list and (args.verbose or args.show_errors):
         print(f'\n{_C.RED}Failed files:{_S.RESET_ALL}')
