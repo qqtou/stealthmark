@@ -609,15 +609,15 @@ class MP3Handler(BaseHandler):
         if result.is_success:
             match = result.watermark.content == watermark.content
             return VerifyResult(
-                is_match=match,
-                expected=watermark.content,
-                extracted=result.watermark.content,
+                status=WatermarkStatus.SUCCESS if match else WatermarkStatus.VERIFICATION_FAILED,
+                is_valid=match,
+                match_score=1.0 if match else 0.0,
                 file_path=file_path
             )
         return VerifyResult(
-            is_match=False,
-            expected=watermark.content,
-            extracted=None,
+            status=WatermarkStatus.VERIFICATION_FAILED,
+            is_valid=False,
+            match_score=0.0,
             file_path=file_path
         )
 

@@ -1,8 +1,8 @@
 import unittest
 import os
 import tempfile
-from src.media.ogg_handler import OGGHandler
-from src.core.base import WatermarkData
+from stealthmark.media.ogg_handler import OGGHandler
+from stealthmark.core.base import WatermarkData, WatermarkStatus
 
 class TestOGGHandler(unittest.TestCase):
     def setUp(self):
@@ -32,7 +32,7 @@ class TestOGGHandler(unittest.TestCase):
     
     def test_extract_success(self):
         """测试OGG水印提取成功"""
-        # 先嵌入水印
+        # 先嵌入水
         embed_output = os.path.join(self.temp_dir, 'test_extract.ogg')
         watermark = WatermarkData(content='OGGExtract-2026')
         embed_result = self.handler.embed(self.test_ogg_path, watermark, embed_output)
@@ -55,7 +55,7 @@ class TestOGGHandler(unittest.TestCase):
         # 验证
         verify_result = self.handler.verify(output_path, watermark)
         self.assertTrue(verify_result.is_valid)
-        self.assertEqual(verify_result.status, 'success')
+        self.assertEqual(verify_result.status, WatermarkStatus.SUCCESS)
 
 if __name__ == '__main__':
     unittest.main()

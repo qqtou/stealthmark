@@ -1,8 +1,8 @@
 import unittest
 import os
 import tempfile
-from src.document.pdf_watermark import PDFHandler
-from src.core.base import WatermarkData
+from stealthmark.document.pdf_watermark import PDFHandler
+from stealthmark.core.base import WatermarkData, WatermarkStatus
 
 class TestPDFHandler(unittest.TestCase):
     def setUp(self):
@@ -34,11 +34,11 @@ class TestPDFHandler(unittest.TestCase):
         embed_output = os.path.join(self.temp_dir, 'test_extract.pdf')
         watermark = WatermarkData(content='PDFExtract-2026')
         
-        # 先嵌入
+        # 先嵌
         embed_result = self.handler.embed(self.test_pdf_path, watermark, embed_output)
         self.assertTrue(embed_result.is_success, f"PDF embed failed: {embed_result.message}")
         
-        # 再提取
+        # 再提
         extract_result = self.handler.extract(embed_output)
         self.assertTrue(extract_result.is_success, f"PDF extract failed: {extract_result.message}")
         self.assertEqual(extract_result.watermark.content, 'PDFExtract-2026', "Extracted content mismatch")
@@ -55,7 +55,7 @@ class TestPDFHandler(unittest.TestCase):
         # 验证
         verify_result = self.handler.verify(output_path, watermark)
         self.assertTrue(verify_result.is_valid, f"PDF verify failed: {verify_result.message}")
-        self.assertEqual(verify_result.status, 'success')
+        self.assertEqual(verify_result.status, WatermarkStatus.SUCCESS)
 
 if __name__ == '__main__':
     unittest.main()

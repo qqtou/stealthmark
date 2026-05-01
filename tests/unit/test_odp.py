@@ -1,8 +1,8 @@
 import unittest
 import os
 import tempfile
-from src.document.odp_watermark import ODPHandler
-from src.core.base import WatermarkData
+from stealthmark.document.odt_watermark import ODPHandler
+from stealthmark.core.base import WatermarkData, WatermarkStatus
 
 class TestODPHandler(unittest.TestCase):
     def setUp(self):
@@ -34,11 +34,11 @@ class TestODPHandler(unittest.TestCase):
         embed_output = os.path.join(self.temp_dir, 'test_extract.odp')
         watermark = WatermarkData(content='ODPExtract-2026')
         
-        # 先嵌入
+        # 先嵌
         embed_result = self.handler.embed(self.test_odp_path, watermark, embed_output)
         self.assertTrue(embed_result.is_success, f"ODP embed failed: {embed_result.message}")
         
-        # 再提取
+        # 再提
         extract_result = self.handler.extract(embed_output)
         self.assertTrue(extract_result.is_success, f"ODP extract failed: {extract_result.message}")
         self.assertEqual(extract_result.watermark.content, 'ODPExtract-2026', "Extracted content mismatch")
@@ -55,7 +55,7 @@ class TestODPHandler(unittest.TestCase):
         # 验证
         verify_result = self.handler.verify(output_path, watermark)
         self.assertTrue(verify_result.is_valid, f"ODP verify failed: {verify_result.message}")
-        self.assertEqual(verify_result.status, 'success')
+        self.assertEqual(verify_result.status, WatermarkStatus.SUCCESS)
 
 if __name__ == '__main__':
     unittest.main()

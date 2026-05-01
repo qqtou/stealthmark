@@ -1,10 +1,8 @@
-# tests/test_exceptions.py
-"""
-异常类测试
-"""
+# tests/unit/test_exceptions.py
+"""Unit tests for stealthmark.core.exceptions"""
 
-import pytest
-from src.core.exceptions import (
+import unittest
+from stealthmark.core.exceptions import (
     StealthMarkError,
     FileNotFoundError,
     UnsupportedFormatError,
@@ -16,52 +14,43 @@ from src.core.exceptions import (
 )
 
 
-class TestExceptions:
-    """异常类测试类"""
-    
+class TestExceptions(unittest.TestCase):
+    """Exception class tests"""
+
     def test_stealthmark_error(self):
-        """测试基础异常"""
-        error = StealthMarkError("基础错误")
-        assert str(error) == "基础错误"
-    
+        error = StealthMarkError("base error")
+        self.assertEqual(str(error), "base error")
+
     def test_file_not_found_error(self):
-        """测试文件不存在异常"""
-        error = FileNotFoundError("文件不存在")
-        assert isinstance(error, StealthMarkError)
-        assert str(error) == "文件不存在"
-    
+        error = FileNotFoundError("file not found")
+        self.assertIsInstance(error, StealthMarkError)
+        self.assertEqual(str(error), "file not found")
+
     def test_unsupported_format_error(self):
-        """测试不支持格式异常"""
-        error = UnsupportedFormatError("不支持的格式")
-        assert isinstance(error, StealthMarkError)
-    
+        error = UnsupportedFormatError("unsupported format")
+        self.assertIsInstance(error, StealthMarkError)
+
     def test_embed_error(self):
-        """测试嵌入异常"""
-        error = EmbedError("嵌入失败")
-        assert isinstance(error, StealthMarkError)
-    
+        error = EmbedError("embed failed")
+        self.assertIsInstance(error, StealthMarkError)
+
     def test_extract_error(self):
-        """测试提取异常"""
-        error = ExtractError("提取失败")
-        assert isinstance(error, StealthMarkError)
-    
+        error = ExtractError("extract failed")
+        self.assertIsInstance(error, StealthMarkError)
+
     def test_verify_error(self):
-        """测试验证异常"""
-        error = VerifyError("验证失败")
-        assert isinstance(error, StealthMarkError)
-    
+        error = VerifyError("verify failed")
+        self.assertIsInstance(error, StealthMarkError)
+
     def test_codec_error(self):
-        """测试编解码异常"""
-        error = CodecError("编解码错误")
-        assert isinstance(error, StealthMarkError)
-    
+        error = CodecError("codec error")
+        self.assertIsInstance(error, StealthMarkError)
+
     def test_encryption_error(self):
-        """测试加密异常"""
-        error = EncryptionError("加密失败")
-        assert isinstance(error, StealthMarkError)
-    
+        error = EncryptionError("encryption failed")
+        self.assertIsInstance(error, StealthMarkError)
+
     def test_exception_hierarchy(self):
-        """测试异常层次"""
         errors = [
             FileNotFoundError,
             UnsupportedFormatError,
@@ -71,12 +60,11 @@ class TestExceptions:
             CodecError,
             EncryptionError
         ]
-        
         for error_class in errors:
             error = error_class("test")
-            assert isinstance(error, Exception)
-            assert isinstance(error, StealthMarkError)
+            self.assertIsInstance(error, Exception)
+            self.assertIsInstance(error, StealthMarkError)
 
 
 if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+    unittest.main()

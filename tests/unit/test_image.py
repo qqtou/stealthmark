@@ -1,13 +1,13 @@
 import unittest
 import os
 import tempfile
-from src.image.image_watermark import ImageLSBHandler
-from src.core.base import WatermarkData
+from stealthmark.image.image_watermark import PNGHandler
+from stealthmark.core.base import WatermarkData, WatermarkStatus
 
 class TestImageHandler(unittest.TestCase):
     def setUp(self):
-        self.handler = ImageLSBHandler(config={'password': 'test_secret'})
-        self.test_image_path = r'tests\fixtures\test.png'  # 假设存在PNG测试文件
+        self.handler = PNGHandler(config={'password': 'test_secret'})
+        self.test_image_path = r'tests\fixtures\test.png'
         self.temp_dir = tempfile.mkdtemp()
     
     def tearDown(self):
@@ -16,7 +16,7 @@ class TestImageHandler(unittest.TestCase):
             shutil.rmtree(self.temp_dir)
     
     def test_embed_success(self):
-        """测试图片水印嵌入成功"""
+        """Test PNG watermark embed"""
         output_path = os.path.join(self.temp_dir, 'test_embed.png')
         watermark = WatermarkData(content='ImageTest-2026')
         
@@ -30,32 +30,32 @@ class TestImageHandler(unittest.TestCase):
         self.assertTrue(os.path.exists(output_path), "Output image file not created")
     
     def test_extract_success(self):
-        """测试图片水印提取成功"""
+        """Test PNG watermark extract"""
         embed_output = os.path.join(self.temp_dir, 'test_extract.png')
         watermark = WatermarkData(content='ImageExtract-2026')
         
-        # 先嵌入
+        # embed first
         embed_result = self.handler.embed(self.test_image_path, watermark, embed_output)
         self.assertTrue(embed_result.is_success, f"Image embed failed: {embed_result.message}")
         
-        # 再提取
+        # then extract
         extract_result = self.handler.extract(embed_output)
         self.assertTrue(extract_result.is_success, f"Image extract failed: {extract_result.message}")
         self.assertEqual(extract_result.watermark.content, 'ImageExtract-2026', "Extracted content mismatch")
     
     def test_verify_success(self):
-        """测试图片水印验证成功"""
+        """Test PNG watermark verify"""
         output_path = os.path.join(self.temp_dir, 'test_verify.png')
         watermark = WatermarkData(content='ImageVerify-2026')
         
-        # 嵌入
+        # embed
         embed_result = self.handler.embed(self.test_image_path, watermark, output_path)
         self.assertTrue(embed_result.is_success)
         
-        # 验证
+        # verify
         verify_result = self.handler.verify(output_path, watermark)
         self.assertTrue(verify_result.is_valid, f"Image verify failed: {verify_result.message}")
-        self.assertEqual(verify_result.status, 'success')
+        self.assertEqual(verify_result.status, WatermarkStatus.SUCCESS)
 
 if __name__ == '__main__':
     unittest.main()
