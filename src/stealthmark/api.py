@@ -1,8 +1,9 @@
 import os
 import uuid
 import time
-import tempfile
+import shutil
 import threading
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
 
@@ -19,7 +20,7 @@ sm = StealthMark()
 app = FastAPI(
     title="StealthMark API",
     description="隐式水印工具 - Web API",
-    version="1.1.0",
+    version="2.0.0",
 )
 
 # Mount static files for test frontend
@@ -28,27 +29,60 @@ if _static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
-# ==================== File Store (UUID-based, auto-cleanup) ====================
+# ==================== File Store (Date-based directory, configurable retention) ====================
+
+# Configuration — can be overridden via environment variables
+FILE_BASE_DIR = Path(os.environ.get("STEALTHMARK_FILE_DIR", str(Path(__file__).resolve().parent / "static" / "file")))
+FILE_RETENTION_DAYS = int(os.environ.get("STEALTHMARK_RETENTION_DAYS", "90"))  # 0 = permanent
+FILE_CLEANUP_INTERVAL = int(os.environ.get("STEALTHMARK_CLEANUP_INTERVAL", "3600"))  # seconds
+
 
 class FileStore:
-    """UUID-based file registry with TTL auto-cleanup.
-    
-    Replaces raw temp path exposure to prevent:
-    1. Path traversal attacks (only registered files accessible)
-    2. Temp file leaks (auto-cleanup after TTL)
-    3. Stale references after restart (all refs are UUIDs)
+    """Date-based file storage with configurable retention.
+
+    Directory layout: <FILE_BASE_DIR>/<YYYY>/<M>/<uuid><ext>
+    Example: static/file/2026/5/a1b2c3d4.pdf
+
+    Retention:
+    - Default: 90 days (3 months), files older than this are auto-deleted
+    - Set STEALTHMARK_RETENTION_DAYS=0 for permanent storage
+    - Individual files can be marked permanent at registration time
+
+    Cleanup:
+    - Background thread scans file directories every FILE_CLEANUP_INTERVAL seconds
+    - Removes files whose directory date (YYYY/M) is older than retention period
+    - Empty year/month directories are pruned after file removal
     """
 
-    def __init__(self, ttl_seconds: int = 3600, cleanup_interval: int = 300):
-        self._store: dict[str, dict] = {}  # uuid -> {path, created_at}
-        self._ttl = ttl_seconds
+    def __init__(
+        self,
+        base_dir: Path = FILE_BASE_DIR,
+        retention_days: int = FILE_RETENTION_DAYS,
+        cleanup_interval: int = FILE_CLEANUP_INTERVAL,
+    ):
+        self._base_dir = Path(base_dir)
+        self._retention_days = retention_days
         self._lock = threading.Lock()
-        self._cleanup_thread: Optional[threading.Thread] = None
+        self._registry: dict[str, dict] = {}  # uuid -> {path, created_at, permanent}
         self._running = False
+        self._cleanup_thread: Optional[threading.Thread] = None
         self._cleanup_interval = cleanup_interval
+
+        # Ensure base directory exists
+        self._base_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def retention_days(self) -> int:
+        return self._retention_days
+
+    @property
+    def base_dir(self) -> Path:
+        return self._base_dir
 
     def start_cleanup(self):
         """Start background cleanup thread."""
+        if self._retention_days == 0:
+            return  # Permanent mode, no cleanup needed
         self._running = True
         self._cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
         self._cleanup_thread.start()
@@ -60,68 +94,141 @@ class FileStore:
     def _cleanup_loop(self):
         while self._running:
             time.sleep(self._cleanup_interval)
-            self.remove_expired()
+            self.cleanup_expired()
 
-    def register(self, path: str) -> str:
-        """Register a file path, return UUID token."""
+    def _date_dir(self, dt: Optional[datetime] = None) -> Path:
+        """Get date-based directory path: base_dir/YYYY/M"""
+        dt = dt or datetime.now()
+        return self._base_dir / str(dt.year) / str(dt.month)
+
+    def register(self, src_path: str, original_name: str = "", permanent: bool = False) -> str:
+        """Move file into date-based storage and return UUID token.
+
+        Args:
+            src_path: Source file path (will be moved, not copied)
+            original_name: Original filename to derive extension
+            permanent: If True, file is never auto-deleted
+
+        Returns:
+            UUID token for later retrieval
+        """
         file_id = uuid.uuid4().hex
+        now = datetime.now()
+        date_dir = self._date_dir(now)
+        date_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build destination path: date_dir/<uuid><ext>
+        ext = Path(original_name).suffix if original_name else Path(src_path).suffix
+        dest_path = date_dir / f"{file_id}{ext}"
+
+        # Move file from temp location to managed storage
+        shutil.move(str(src_path), str(dest_path))
+
         with self._lock:
-            self._store[file_id] = {
-                "path": path,
+            self._registry[file_id] = {
+                "path": str(dest_path),
                 "created_at": time.time(),
+                "permanent": permanent,
+                "date_dir": str(date_dir),
             }
         return file_id
 
     def get(self, file_id: str) -> Optional[str]:
-        """Get file path by UUID. Returns None if not found or expired."""
+        """Get file path by UUID. Returns None if not found."""
         with self._lock:
-            entry = self._store.get(file_id)
+            entry = self._registry.get(file_id)
             if entry is None:
                 return None
-            if time.time() - entry["created_at"] > self._ttl:
-                self._remove_file(file_id, entry)
+            path = entry["path"]
+            if not Path(path).exists():
+                self._registry.pop(file_id, None)
                 return None
-            return entry["path"]
+            return path
 
-    def _remove_file(self, file_id: str, entry: dict):
-        """Remove file from disk and store. Must be called within lock."""
-        self._store.pop(file_id, None)
-        try:
-            os.unlink(entry["path"])
-        except OSError:
-            pass
-
-    def remove_expired(self):
-        """Remove all expired files."""
-        now = time.time()
+    def mark_permanent(self, file_id: str) -> bool:
+        """Mark a file as permanent (never auto-deleted). Returns False if not found."""
         with self._lock:
-            expired = [
-                fid for fid, entry in self._store.items()
-                if now - entry["created_at"] > self._ttl
-            ]
-            for fid in expired:
-                self._remove_file(fid, self._store.get(fid, {}))
+            entry = self._registry.get(file_id)
+            if entry is None:
+                return False
+            entry["permanent"] = True
+            return True
 
-    def cleanup_all(self):
-        """Remove all registered files (for shutdown)."""
+    def cleanup_expired(self):
+        """Remove files older than retention period, skip permanent ones."""
+        if self._retention_days == 0:
+            return  # Permanent mode
+
+        cutoff = datetime.now() - timedelta(days=self._retention_days)
+        cutoff_year, cutoff_month = cutoff.year, cutoff.month
+
         with self._lock:
-            for fid, entry in list(self._store.items()):
+            # Find expired registry entries
+            expired_ids = []
+            for fid, entry in self._registry.items():
+                if entry.get("permanent"):
+                    continue
+                date_dir = Path(entry["date_dir"])
                 try:
-                    os.unlink(entry["path"])
+                    # Parse year/month from directory path
+                    parts = date_dir.parts
+                    year = int(parts[-2])
+                    month = int(parts[-1])
+                    if (year, month) < (cutoff_year, cutoff_month):
+                        expired_ids.append(fid)
+                except (ValueError, IndexError):
+                    pass
+
+            for fid in expired_ids:
+                entry = self._registry.pop(fid, {})
+                try:
+                    os.unlink(entry.get("path", ""))
                 except OSError:
                     pass
-            self._store.clear()
+
+        # Prune empty date directories
+        self._prune_empty_dirs()
+
+    def _prune_empty_dirs(self):
+        """Remove empty month and year directories."""
+        if not self._base_dir.exists():
+            return
+        for year_dir in self._base_dir.iterdir():
+            if not year_dir.is_dir():
+                continue
+            for month_dir in list(year_dir.iterdir()):
+                if month_dir.is_dir() and not any(month_dir.iterdir()):
+                    try:
+                        month_dir.rmdir()
+                    except OSError:
+                        pass
+            if year_dir.is_dir() and not any(year_dir.iterdir()):
+                try:
+                    year_dir.rmdir()
+                except OSError:
+                    pass
+
+    def cleanup_all(self):
+        """Remove all files (for shutdown). Only removes non-permanent files."""
+        with self._lock:
+            for fid, entry in list(self._registry.items()):
+                if entry.get("permanent"):
+                    continue
+                try:
+                    os.unlink(entry.get("path", ""))
+                except OSError:
+                    pass
+                self._registry.pop(fid, None)
 
 
 # Global file store instance
-file_store = FileStore(ttl_seconds=3600, cleanup_interval=300)
+file_store = FileStore()
 file_store.start_cleanup()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     file_store.stop_cleanup()
-    file_store.cleanup_all()
 
 
 # ==================== Pydantic Models ====================
@@ -182,6 +289,7 @@ FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtur
 
 
 async def save_upload(file: UploadFile, suffix: str = "") -> str:
+    """Save uploaded file to a temp location for processing."""
     suffix = suffix or Path(file.filename or "").suffix
     fd, path = tempfile.mkstemp(suffix=suffix)
     os.close(fd)
@@ -197,7 +305,7 @@ async def save_upload(file: UploadFile, suffix: str = "") -> str:
 async def root():
     return {
         "name": "StealthMark API",
-        "version": "1.1.0",
+        "version": "2.0.0",
         "docs": "/docs",
         "health": "/health",
         "info": "/info",
@@ -206,7 +314,12 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "handlers": len(sm._handler_registry)}
+    return {
+        "status": "ok",
+        "handlers": len(sm._handler_registry),
+        "file_storage": str(file_store.base_dir),
+        "retention_days": file_store.retention_days,
+    }
 
 
 @app.get("/info", response_model=InfoResponse)
@@ -278,7 +391,7 @@ async def get_output_file(file_id: str):
     """Download output file by UUID token. Only registered files are accessible."""
     path = file_store.get(file_id)
     if path is None:
-        raise HTTPException(404, "File not found or expired. Files are kept for 1 hour after creation.")
+        raise HTTPException(404, "File not found or expired.")
     
     filepath = Path(path)
     if not filepath.exists():
@@ -298,7 +411,13 @@ async def embed_api(
     file: UploadFile = File(...),
     watermark: str = Form(...),
     password: Optional[str] = Form(None),
+    permanent: bool = Form(False),
 ):
+    """Embed watermark into file.
+
+    Args:
+        permanent: If True, file is stored permanently (not auto-deleted after retention period).
+    """
     if not watermark:
         raise HTTPException(400, "watermark is required")
 
@@ -311,12 +430,12 @@ async def embed_api(
         result = sm.embed(input_path, watermark, output_path, password=password)
         if result.is_success:
             actual_output = result.output_path if result.output_path else output_path
-            file_id = file_store.register(actual_output)
+            file_id = file_store.register(actual_output, original_name=Path(file.filename or "").name, permanent=permanent)
             return EmbedResponse(
                 success=True,
                 watermark=watermark,
                 file_id=file_id,
-                filename=Path(actual_output).name,
+                filename=Path(file.filename or "").name,
                 message="嵌入成功",
             )
         else:
@@ -401,6 +520,7 @@ async def batch_api(
     watermark: str = Form(...),
     action: str = Form("embed"),
     password: Optional[str] = Form(None),
+    permanent: bool = Form(False),
 ):
     if action not in ("embed", "extract", "verify"):
         raise HTTPException(400, "action must be 'embed', 'extract', or 'verify'")
@@ -418,7 +538,7 @@ async def batch_api(
                 file_id = None
                 if r.is_success:
                     actual_output = r.output_path if r.output_path else output_path
-                    file_id = file_store.register(actual_output)
+                    file_id = file_store.register(actual_output, original_name=file.filename or "", permanent=permanent)
                 else:
                     try:
                         os.unlink(output_path)

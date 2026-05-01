@@ -122,6 +122,8 @@ uvicorn stealthmark.api:app --reload --port 8000
 
 交互式文档：http://localhost:8000/docs
 
+### 端点
+
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/health` | GET | 健康检查 |
@@ -130,14 +132,61 @@ uvicorn stealthmark.api:app --reload --port 8000
 | `/extract` | POST | 提取水印 |
 | `/verify` | POST | 验证水印 |
 | `/batch` | POST | 批量处理 |
+| `/output-file/{id}` | GET | 下载输出文件 |
 | `/test` | GET | 测试前端页面 |
 
+### 文件存储
+
+上传的文件和水印嵌入后的输出文件存储在服务根目录下的 `static/file/` 目录，按年月自动归档：
+
+```
+static/file/
+├── 2026/
+│   ├── 4/          # 2026年4月的文件
+│   │   ├── a1b2c3d4.pdf
+│   │   └── e5f6a7b8.docx
+│   └── 5/          # 2026年5月的文件
+│       ├── c9d0e1f2.png
+│       └── ...
+└── 2027/
+    └── ...
+```
+
+**保留策略**：
+
+| 配置 | 默认值 | 说明 |
+|------|--------|------|
+| 保留时间 | 90天（3个月） | 超过保留期的文件自动清理 |
+| 永久保存 | 可选 | 嵌入时设置 `permanent=true`，文件不会被自动删除 |
+| 清理频率 | 每小时 | 后台线程定期扫描过期文件 |
+| 空目录清理 | 自动 | 清理文件后自动删除空的年/月目录 |
+
+**环境变量配置**：
+
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `STEALTHMARK_FILE_DIR` | `static/file` | 文件存储根目录 |
+| `STEALTHMARK_RETENTION_DAYS` | `90` | 文件保留天数，设为 `0` 表示永久保存 |
+| `STEALTHMARK_CLEANUP_INTERVAL` | `3600` | 清理扫描间隔（秒） |
+
+**API 参数**：
+
+嵌入水印时可通过 `permanent` 参数控制保留策略：
+
 ```bash
-# 嵌入水印
+# 默认保留90天
 curl -X POST http://localhost:8000/embed \
   -F "file=@document.pdf" \
   -F "watermark=版权所有 2026"
 
+# 永久保存
+curl -X POST http://localhost:8000/embed \
+  -F "file=@document.pdf" \
+  -F "watermark=版权所有 2026" \
+  -F "permanent=true"
+```
+
+```bash
 # 验证水印
 curl -X POST http://localhost:8000/verify \
   -F "file=@output.pdf" \
@@ -176,7 +225,11 @@ stealthmark/
 │   ├── media/             # 8个音视频Handler
 │   ├── cli.py             # 命令行
 │   ├── api.py             # Web API
-│   └── gui.py             # GUI
+│   ├── gui.py             # GUI
+│   └── static/            # Web静态资源
+│       ├── test.html      # 测试前端页面
+│       └── file/          # 文件存储目录
+│           └── YYYY/M/    # 按年月归档
 ├── tests/                 # 单元测试 + 集成测试 + 测试数据
 ├── skills/stealthmark/    # OpenClaw Skill
 ├── docs/                  # 设计文档
