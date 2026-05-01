@@ -102,9 +102,21 @@ class StealthMark:
     
     # ==================== 核心操作 ====================
     
-    def embed(self, file_path: str, watermark: str, 
+    def embed(self, file_path: str, watermark: str,
               output_path: Optional[str] = None, **kwargs) -> EmbedResult:
-        """嵌入水印到文件"""
+        """"
+        嵌入水印到文件
+
+        Args:
+            file_path: 输入文件路径
+            watermark: 水印文本内容
+            output_path: 输出文件路径（默认为覆盖原文件）
+            **kwargs: 额外参数（password 等透传给 handler）
+
+
+        Returns:
+            EmbedResult: 嵌入结果，is_success=True 时 result.output_path 为实际输出路径
+        """
         logger.info(f"Embed request: {file_path}")
         
         path = Path(file_path)
@@ -134,7 +146,16 @@ class StealthMark:
         return result
     
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
-        """从文件中提取水印"""
+        """
+        从文件中提取水印
+
+        Args:
+            file_path: 含水印文件路径
+            **kwargs: 额外参数
+
+        Returns:
+            ExtractResult: 提取结果，is_success=True 时 result.watermark.content 为水印内容
+        """
         logger.info(f"Extract request: {file_path}")
         
         handler = self._get_handler(file_path)
@@ -146,7 +167,20 @@ class StealthMark:
     
     def verify(self, file_path: str, original_watermark: str,
                **kwargs) -> VerifyResult:
-        """验证文件中的水印"""
+        """
+        验证文件中的水印完整性
+
+        流程：提取水印 → 与原始内容比对 → 计算相似度
+        相似度 >= 80% 且提取成功则视为验证通过
+
+        Args:
+            file_path: 含水印文件路径
+            original_watermark: 原始水印文本（用于比对）
+            **kwargs: 额外参数
+
+        Returns:
+            VerifyResult: 验证结果，is_valid=True 表示通过
+        """
         logger.info(f"Verify request: {file_path}")
         
         extract_result = self.extract(file_path, **kwargs)
@@ -180,7 +214,20 @@ class StealthMark:
     # ==================== 辅助方法 ====================
     
     def _calculate_similarity(self, s1: str, s2: str) -> float:
-        """Levenshtein距离相似度"""
+        """
+        计算两个字符串的相似度（Levenshtein 编辑距离）
+
+
+        对于超长字符串（>100字符）使用 SHA-256 哈希比对加速。
+
+
+        Args:
+            s1: 字符串1（提取的水印）
+            s2: 字符串2（原始水印）
+
+        Returns:
+            float: 相似度，1.0=完全一致，0.0=完全不同
+        """
         if s1 == s2:
             return 1.0
         if not s1 or not s2:
@@ -208,10 +255,20 @@ class StealthMark:
         return 1.0 - (dp[len1][len2] / max_len)
     
     def is_supported(self, file_path: str) -> bool:
+        """
+        检查文件是否被支持
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            bool: 扩展名在支持列表中返回 True
+        """
         ext = Path(file_path).suffix.lower()
         return ext in self._handlers
-    
+
     def supported_formats(self) -> List[str]:
+        """返回所有支持的扩展名列表（含点号，如 '.pdf'）"""
         return list(self._handlers.keys())
 
 

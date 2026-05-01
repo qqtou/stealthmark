@@ -30,11 +30,11 @@
 | 图片 | `.heic` | EXIF UserComment |
 | 音频 | `.wav` | 扩频水印（自适应alpha） |
 | 音频 | `.mp3` / `.flac` / `.m4a` | 扩频水印 |
-| 音频 | `.aac` | 扩频水印（输出M4A） |
-| 音频 | `.ogg` | mutagen元数据 |
-| 视频 | `.mp4` / `.mov` | RGB Blue通道LSB + libx264rgb无损 |
-| 视频 | `.avi` / `.mkv` | RGB Blue通道LSB + FFV1无损 |
-| 视频 | `.webm` | RGB Blue通道LSB + VP9无损 |
+| 音频 | `.aac` | 扩频水印（输出 `.m4a`，ALAC 无损需 M4A 容器） |
+| 音频 | `.ogg` | mutagen 元数据 |
+| 视频 | `.mp4` / `.mov` | RGB Blue通道LSB + libx264rgb 无损 |
+| 视频 | `.avi` / `.mkv` | RGB Blue通道LSB + FFV1 无损 |
+| 视频 | `.webm` | RGB Blue通道LSB + VP9 无损 |
 | 视频 | `.wmv` | RGB Blue通道LSB |
 
 ## 安装
@@ -57,10 +57,12 @@ pip install -e .
 
 ## 快速开始
 
+### Python API
+
 ```python
 from stealthmark import StealthMark
 
-# 初始化
+# 初始化（可选传入 password 启用 AES-256 加密）
 sm = StealthMark()
 
 # 嵌入水印
@@ -74,7 +76,30 @@ print(f"水印内容: {result.watermark.content}")
 # 验证水印
 result = sm.verify("output.pdf", "版权所有 2026")
 print(f"验证结果: {result.is_valid}")
+
+# 加密模式
+sm_secure = StealthMark(password="secret123")
+result = sm_secure.embed("doc.pdf", "机密", "secure.pdf")
 ```
+
+## 水印容量与限制
+
+| 格式类型 | 最大水印长度 | 典型限制 |
+|----------|-------------|----------|
+| 文档（PDF/DOCX/PPTX） | ~1000 字符 | PDF 元数据可能被工具清理 |
+| 文档（XLSX/ODF/EPUB） | ~500 字符 | 编辑器保留元数据 |
+| 图片（PNG/BMP） | ~1000 字符 | LSB 对压缩/缩放敏感 |
+| 图片（JPEG） | ~500 字符 | DCT 抗压缩有限 |
+| 音频（WAV/FLAC） | ~50 字符 | 依赖音频时长 |
+| 音频（MP3/AAC） | ~30 字符 | 有损编码影响精度 |
+| 视频（MP4/MOV/AVI） | ~100 字符 | 需无损编码 |
+
+
+**通用限制**：
+- 水印文本最长 1024 字符
+- 加密模式下所有 Handler 统一使用 AES-256-CBC
+- 有损格式（MP3/OGG/HEIC）提取失败为预期行为
+- 视频仅修改第一帧，避免多帧分散导致字节对齐问题
 
 ## 命令行
 
@@ -211,7 +236,7 @@ curl -X POST http://localhost:8000/verify \
 - **音频/视频**：处理时间随文件长度增加
 - **PDF**：元数据可能被专业工具清理
 - **视频**：输出为无损编码，文件较大；有损转码会破坏水印
-- **AAC**：输出为 .m4a 格式（ALAC无损需M4A容器）
+- **AAC**：输出为 `.m4a` 格式（ALAC 无损编码需 M4A 容器，无法写入原生 `.aac`）
 - **有损格式**：MP3/OGG/HEIC等有损格式水印提取失败为预期行为
 
 ## 项目结构
