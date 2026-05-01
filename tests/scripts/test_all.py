@@ -2,30 +2,33 @@ import os, sys, time
 from datetime import datetime
 
 basedir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, basedir)
+srcdir = os.path.join(basedir, 'src')
+sys.path.insert(0, srcdir)
 os.chdir(basedir)
-from src.core.manager import StealthMark
+from stealthmark import StealthMark
 
 sm = StealthMark()
 test_dir = os.path.join(basedir, 'tests', 'fixtures')
 results = {}
 
-# 所有支持的格式（28种）
+# 所有支持的格式（31种）
 formats = [
     # 文档格式 (9种)
     ('pdf', 'PDF'), ('docx', 'DOCX'), ('pptx', 'PPTX'), ('xlsx', 'XLSX'),
     ('odt', 'ODT'), ('ods', 'ODS'), ('odp', 'ODP'), ('rtf', 'RTF'), ('epub', 'EPUB'),
-    # 图片格式 (7种)
+    # 图片格式 (9种)
     ('png', 'PNG'), ('jpg', 'JPEG'), ('jpeg', 'JPEG'), ('bmp', 'BMP'),
     ('tiff', 'TIFF'), ('tif', 'TIFF'), ('webp', 'WebP'), ('gif', 'GIF'), ('heic', 'HEIC'),
-    # 音频格式 (5种)
+    # 音频格式 (6种)
     ('wav', 'WAV'), ('mp3', 'MP3'), ('flac', 'FLAC'), ('aac', 'AAC'), ('m4a', 'M4A'),
-    # 视频格式 (5种)
-    ('mp4', 'MP4'), ('avi', 'AVI'), ('mov', 'MOV'), ('wmv', 'WMV'), ('webm', 'WebM')
+    ('ogg', 'OGG'),
+    # 视频格式 (6种)
+    ('mp4', 'MP4'), ('avi', 'AVI'), ('mov', 'MOV'), ('wmv', 'WMV'), ('webm', 'WebM'),
+    ('mkv', 'MKV'),
 ]
 
 # 有损格式：嵌入可能成功，但提取可能因压缩而失败
-lossy_formats = {'HEIC', 'MP3', 'AAC', 'M4A'}
+lossy_formats = {'HEIC', 'MP3', 'AAC'}
 
 print(f"{'='*60}")
 print(f"StealthMark 全格式测试")
@@ -41,17 +44,17 @@ skipped = 0
 for idx, (ext, label) in enumerate(formats, 1):
     src = os.path.join(test_dir, f'test.{ext}')
     out = os.path.join(test_dir, f'test_{ext}_out.{ext}')
-    
+
     print(f"[{idx}/{total}] 测试 {label} ({ext})")
     print(f"  源文件: {src}")
-    
+
     if not os.path.exists(src):
         print(f"  状态: SKIP - 测试文件不存在")
         results[label] = {'status': 'SKIP', 'reason': 'no test file'}
         skipped += 1
         print()
         continue
-    
+
     # 嵌入阶段
     embed_start = time.time()
     try:
@@ -72,7 +75,7 @@ for idx, (ext, label) in enumerate(formats, 1):
         failed += 1
         print()
         continue
-    
+
     # 提取阶段
     extract_start = time.time()
     try:
