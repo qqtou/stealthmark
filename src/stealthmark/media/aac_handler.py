@@ -170,7 +170,6 @@ class AACHandler(WAVHandler):
         M4A/MP4 容器中，不能写入 .aac 文件（.aac 是原始 AAC 比特流）。
         当输出路径为 .aac 时，自动改为 .m4a。
         """
-        from src.core.base import EmbedResult, WatermarkStatus
 
         logger.info(f"AAC embed: {file_path} -> {output_path}")
 
@@ -246,7 +245,6 @@ class AACHandler(WAVHandler):
 
     def extract(self, file_path: str, **kwargs):
         """重写 extract：用 PyAV 读取"""
-        from src.core.base import ExtractResult, WatermarkStatus
 
         logger.info(f"AAC extract: {file_path}")
 

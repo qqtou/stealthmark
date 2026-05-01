@@ -1,11 +1,3 @@
-import sys
-from pathlib import Path
-
-# 将项目 src 目录加入 path，使 from src.core 导入正常工作
-_src = str(Path(__file__).resolve().parent.parent / 'src')
-if _src not in sys.path:
-    sys.path.insert(0, _src)
-
 import os
 from pathlib import Path
 from typing import List
@@ -21,8 +13,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRunnable, QThreadPool
 from PyQt6.QtGui import QAction
 
-from src.core.manager import StealthMark
-from src.core.base import WatermarkStatus
+from .core.manager import StealthMark
+from .core.base import WatermarkStatus
 
 
 # ==================== Supported Extensions ====================

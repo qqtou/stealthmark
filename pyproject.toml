@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stealthmark"
+version = "0.1.0"
+description = "隐式水印工具 - 为文档、图片、音视频添加隐藏水印"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "StealthMark Team", email = "contact@stealthmark.dev"}
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Legal Industry",
+    "Topic :: Security",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["watermark", "steganography", "security", "document", "image", "audio", "video"]
+
+dependencies = [
+    "cryptography>=41.0.0",
+    "PyPDF2>=3.0.0",
+    "python-docx>=0.8.11",
+    "python-pptx>=0.6.21",
+    "Pillow>=10.0.0",
+    "opencv-python>=4.8.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "colorama>=0.4.6",
+    "tqdm>=4.65.0",
+    "FastAPI>=0.100.0",
+    "uvicorn>=0.23.0",
+    "PyQt6>=6.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "flake8>=6.0.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+]
+heic = [
+    "pillow-heif>=0.12.0",
+]
+
+[project.scripts]
+stealthmark = "stealthmark.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/qqtou/stealthmark"
+Repository = "https://github.com/qqtou/stealthmark.git"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+stealthmark = ["static/**/*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

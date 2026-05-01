@@ -15,8 +15,8 @@ from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from src.core.manager import StealthMark
-from src.core.base import WatermarkStatus
+from .core.manager import StealthMark
+from .core.base import WatermarkStatus
 
 # ==================== 日志与颜色 ====================
 

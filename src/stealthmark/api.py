@@ -1,11 +1,3 @@
-import sys
-from pathlib import Path
-
-# 将项目 src 目录加入 path，使 from src.core 导入正常工作
-_src = str(Path(__file__).resolve().parent.parent / 'src')
-if _src not in sys.path:
-    sys.path.insert(0, _src)
-
 import os
 import tempfile
 from pathlib import Path
@@ -16,8 +8,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.core.manager import StealthMark
-from src.core.base import WatermarkStatus
+from .core.manager import StealthMark
+from .core.base import WatermarkStatus
 
 sm = StealthMark()
 
@@ -85,7 +77,7 @@ SUPPORTED_CATEGORIES = {
 }
 
 # Test template files directory
-FIXTURES_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
+FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
 
 
 async def save_upload(file: UploadFile, suffix: str = "") -> str:
