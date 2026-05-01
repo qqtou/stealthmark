@@ -38,7 +38,7 @@ htmlcov/
 .tox/
 .nox/
 .coverage
-.coverage.*
+.coverage.*ids
 .cache
 nosetests.xml
 coverage.xml
@@ -67,8 +67,15 @@ venv.bak/
 *.swo
 *~
 
+# Build artifacts
+stealthmark.skill
+
 # Project specific - test fixtures
 tests/fixtures/out*
 tests/fixtures/*_out.*
 tests/fixtures/*_out_*
+tests/fixtures/*_wm.*
+tests/fixtures/batch_out/
+tests/fixtures/output_*
 !tests/fixtures/test.*
+!tests/fixtures/test.*/

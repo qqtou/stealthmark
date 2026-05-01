@@ -1,0 +1,33 @@
+{
+  "stealthmark": {
+    "version": "0.1.0",
+    "project_path": "D:\\work\\code\\stealthmark",
+    "default_watermark": "",
+    "embed": {
+      "output_suffix": "_wm",
+      "force_overwrite": false,
+      "encrypt": false,
+      "encryption_key": ""
+    },
+    "extract": {
+      "verify_after_extract": true
+    },
+    "verify": {
+      "strict_crc": true,
+      "lossy_format_relaxed": false
+    },
+    "batch": {
+      "workers": 4,
+      "recursive": true,
+      "output_dir": null,
+      "name_pattern": "{name}_wm{ext}",
+      "include_extensions": [],
+      "exclude_extensions": []
+    },
+    "logging": {
+      "level": "INFO",
+      "show_handler": true,
+      "colorized": true
+    }
+  }
+}
