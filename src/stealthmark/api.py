@@ -1,5 +1,8 @@
 import os
+import uuid
+import time
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional, List
 
@@ -16,7 +19,7 @@ sm = StealthMark()
 app = FastAPI(
     title="StealthMark API",
     description="隐式水印工具 - Web API",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 # Mount static files for test frontend
@@ -25,12 +28,109 @@ if _static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
+# ==================== File Store (UUID-based, auto-cleanup) ====================
+
+class FileStore:
+    """UUID-based file registry with TTL auto-cleanup.
+    
+    Replaces raw temp path exposure to prevent:
+    1. Path traversal attacks (only registered files accessible)
+    2. Temp file leaks (auto-cleanup after TTL)
+    3. Stale references after restart (all refs are UUIDs)
+    """
+
+    def __init__(self, ttl_seconds: int = 3600, cleanup_interval: int = 300):
+        self._store: dict[str, dict] = {}  # uuid -> {path, created_at}
+        self._ttl = ttl_seconds
+        self._lock = threading.Lock()
+        self._cleanup_thread: Optional[threading.Thread] = None
+        self._running = False
+        self._cleanup_interval = cleanup_interval
+
+    def start_cleanup(self):
+        """Start background cleanup thread."""
+        self._running = True
+        self._cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
+        self._cleanup_thread.start()
+
+    def stop_cleanup(self):
+        """Stop background cleanup thread."""
+        self._running = False
+
+    def _cleanup_loop(self):
+        while self._running:
+            time.sleep(self._cleanup_interval)
+            self.remove_expired()
+
+    def register(self, path: str) -> str:
+        """Register a file path, return UUID token."""
+        file_id = uuid.uuid4().hex
+        with self._lock:
+            self._store[file_id] = {
+                "path": path,
+                "created_at": time.time(),
+            }
+        return file_id
+
+    def get(self, file_id: str) -> Optional[str]:
+        """Get file path by UUID. Returns None if not found or expired."""
+        with self._lock:
+            entry = self._store.get(file_id)
+            if entry is None:
+                return None
+            if time.time() - entry["created_at"] > self._ttl:
+                self._remove_file(file_id, entry)
+                return None
+            return entry["path"]
+
+    def _remove_file(self, file_id: str, entry: dict):
+        """Remove file from disk and store. Must be called within lock."""
+        self._store.pop(file_id, None)
+        try:
+            os.unlink(entry["path"])
+        except OSError:
+            pass
+
+    def remove_expired(self):
+        """Remove all expired files."""
+        now = time.time()
+        with self._lock:
+            expired = [
+                fid for fid, entry in self._store.items()
+                if now - entry["created_at"] > self._ttl
+            ]
+            for fid in expired:
+                self._remove_file(fid, self._store.get(fid, {}))
+
+    def cleanup_all(self):
+        """Remove all registered files (for shutdown)."""
+        with self._lock:
+            for fid, entry in list(self._store.items()):
+                try:
+                    os.unlink(entry["path"])
+                except OSError:
+                    pass
+            self._store.clear()
+
+
+# Global file store instance
+file_store = FileStore(ttl_seconds=3600, cleanup_interval=300)
+file_store.start_cleanup()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    file_store.stop_cleanup()
+    file_store.cleanup_all()
+
+
 # ==================== Pydantic Models ====================
 
 class EmbedResponse(BaseModel):
     success: bool
     watermark: str
-    output_file: Optional[str] = None
+    file_id: Optional[str] = None   # UUID token for download
+    filename: Optional[str] = None   # Original filename for download
     message: str
 
 
@@ -55,6 +155,7 @@ class BatchFileResult(BaseModel):
     message: str
     watermark: Optional[str] = None
     match: Optional[bool] = None
+    file_id: Optional[str] = None    # UUID token for embed results
 
 
 class BatchResponse(BaseModel):
@@ -96,7 +197,7 @@ async def save_upload(file: UploadFile, suffix: str = "") -> str:
 async def root():
     return {
         "name": "StealthMark API",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "docs": "/docs",
         "health": "/health",
         "info": "/info",
@@ -141,7 +242,7 @@ async def test_templates():
                 "name": f.name,
                 "ext": f.suffix,
                 "size": f.stat().st_size,
-                "url": f"/test-template/{f.suffix[1:]}",  # .pdf -> /test-template/pdf
+                "url": f"/test-template/{f.suffix[1:]}",
             })
     return {"templates": templates}
 
@@ -149,7 +250,6 @@ async def test_templates():
 @app.get("/test-template/{ext}")
 async def get_test_template(ext: str):
     """Download a test template file by extension."""
-    # Map extension to filename
     ext_map = {
         "jpg": "jpeg",
         "jpeg": "jpeg",
@@ -171,19 +271,19 @@ async def get_test_template(ext: str):
     )
 
 
-# ==================== Output File Endpoint ====================
+# ==================== Output File Endpoint (UUID-based) ====================
 
-@app.get("/output-file")
-async def get_output_file(path: str):
-    """Get embedded output file by temp path."""
-    if not path:
-        raise HTTPException(400, "path is required")
+@app.get("/output-file/{file_id}")
+async def get_output_file(file_id: str):
+    """Download output file by UUID token. Only registered files are accessible."""
+    path = file_store.get(file_id)
+    if path is None:
+        raise HTTPException(404, "File not found or expired. Files are kept for 1 hour after creation.")
     
     filepath = Path(path)
     if not filepath.exists():
-        raise HTTPException(404, f"File not found: {path}")
+        raise HTTPException(404, "File has been deleted from disk.")
     
-    # Return file with original extension
     return FileResponse(
         path=str(filepath),
         filename=filepath.name,
@@ -210,15 +310,21 @@ async def embed_api(
     try:
         result = sm.embed(input_path, watermark, output_path, password=password)
         if result.is_success:
-            # Use output_path from result (handler may change extension, e.g. .aac -> .m4a)
             actual_output = result.output_path if result.output_path else output_path
+            file_id = file_store.register(actual_output)
             return EmbedResponse(
                 success=True,
                 watermark=watermark,
-                output_file=actual_output,
+                file_id=file_id,
+                filename=Path(actual_output).name,
                 message="嵌入成功",
             )
         else:
+            # Clean up failed output
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
             return EmbedResponse(
                 success=False,
                 watermark=watermark,
@@ -309,11 +415,21 @@ async def batch_api(
         try:
             if action == "embed":
                 r = sm.embed(input_path, watermark, output_path, password=password)
+                file_id = None
+                if r.is_success:
+                    actual_output = r.output_path if r.output_path else output_path
+                    file_id = file_store.register(actual_output)
+                else:
+                    try:
+                        os.unlink(output_path)
+                    except OSError:
+                        pass
                 results.append(BatchFileResult(
                     filename=file.filename or "?",
                     success=r.is_success,
                     message=r.message,
                     watermark=watermark,
+                    file_id=file_id,
                 ))
             elif action == "extract":
                 r = sm.extract(input_path, password=password)
@@ -333,6 +449,10 @@ async def batch_api(
                     match=r.is_valid,
                 ))
         except Exception as e:
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
             results.append(BatchFileResult(
                 filename=file.filename or "?",
                 success=False,
@@ -341,10 +461,6 @@ async def batch_api(
         finally:
             try:
                 os.unlink(input_path)
-            except OSError:
-                pass
-            try:
-                os.unlink(output_path)
             except OSError:
                 pass
 

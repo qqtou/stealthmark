@@ -1048,8 +1048,8 @@
                     if (!embedRes.success) { r.error = embedRes.message; return r; }
 
                     let embeddedBlob;
-                    if (embedRes.output_file) {
-                        embeddedBlob = await fetch('/output-file?path=' + encodeURIComponent(embedRes.output_file)).then(r => r.blob());
+                    if (embedRes.file_id) {
+                        embeddedBlob = await fetch('/output-file/' + embedRes.file_id).then(r => r.blob());
                     } else {
                         embeddedBlob = file.blob;
                     }
