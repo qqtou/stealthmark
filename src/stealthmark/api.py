@@ -3,6 +3,8 @@ import uuid
 import time
 import shutil
 import threading
+import tempfile
+import configparser
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
@@ -29,12 +31,51 @@ if _static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
+# ==================== Configuration ====================
+
+def _load_config() -> configparser.ConfigParser:
+    """Load config from config.ini, searching multiple locations."""
+    cfg = configparser.ConfigParser()
+    
+    # Search paths: 1) CWD 2) same dir as api.py's parent (project root) 3) api.py's dir
+    _api_dir = Path(__file__).resolve().parent
+    _project_root = _api_dir.parent.parent  # src/stealthmark/ -> src/ -> project root
+    
+    search_paths = [
+        Path.cwd() / "config.ini",
+        _project_root / "config.ini",
+        _api_dir / "config.ini",
+    ]
+    
+    for p in search_paths:
+        if p.exists():
+            cfg.read(str(p), encoding="utf-8")
+            break
+    
+    return cfg
+
+
+_config = _load_config()
+
+
+def _cfg(section: str, key: str, fallback: str = "") -> str:
+    """Get config value: config.ini first, then env variable STEALTHMARK_<KEY>, then fallback."""
+    ini_val = _config.get(section, key, fallback="")
+    env_key = f"STEALTHMARK_{key.upper()}"
+    env_val = os.environ.get(env_key, "")
+    # Env variable overrides config.ini
+    return env_val or ini_val or fallback
+
+
 # ==================== File Store (Date-based directory, configurable retention) ====================
 
-# Configuration — can be overridden via environment variables
-FILE_BASE_DIR = Path(os.environ.get("STEALTHMARK_FILE_DIR", str(Path(__file__).resolve().parent / "static" / "file")))
-FILE_RETENTION_DAYS = int(os.environ.get("STEALTHMARK_RETENTION_DAYS", "90"))  # 0 = permanent
-FILE_CLEANUP_INTERVAL = int(os.environ.get("STEALTHMARK_CLEANUP_INTERVAL", "3600"))  # seconds
+FILE_BASE_DIR = Path(_cfg("file_storage", "base_dir", str(Path(__file__).resolve().parent / "static" / "file")))
+# Resolve relative paths against api.py's directory
+if not FILE_BASE_DIR.is_absolute():
+    FILE_BASE_DIR = Path(__file__).resolve().parent / FILE_BASE_DIR
+
+FILE_RETENTION_DAYS = int(_cfg("file_storage", "retention_days", "90"))  # 0 = permanent
+FILE_CLEANUP_INTERVAL = int(_cfg("file_storage", "cleanup_interval", "3600"))  # seconds
 
 
 class FileStore:
@@ -45,11 +86,11 @@ class FileStore:
 
     Retention:
     - Default: 90 days (3 months), files older than this are auto-deleted
-    - Set STEALTHMARK_RETENTION_DAYS=0 for permanent storage
+    - Set retention_days=0 in config.ini for permanent storage
     - Individual files can be marked permanent at registration time
 
     Cleanup:
-    - Background thread scans file directories every FILE_CLEANUP_INTERVAL seconds
+    - Background thread scans file directories every cleanup_interval seconds
     - Removes files whose directory date (YYYY/M) is older than retention period
     - Empty year/month directories are pruned after file removal
     """
@@ -350,7 +391,7 @@ async def test_templates():
     
     templates = []
     for f in FIXTURES_DIR.iterdir():
-        if f.is_file() and f.name.startswith("test."):
+        if f.is_file() and f.name.startswith("test.") and not f.name.startswith("test_wav"):
             templates.append({
                 "name": f.name,
                 "ext": f.suffix,

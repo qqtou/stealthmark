@@ -79,3 +79,6 @@ tests/fixtures/batch_out/
 tests/fixtures/output_*
 !tests/fixtures/test.*
 !tests/fixtures/test.*/
+
+# Uploaded files (managed by API)
+src/stealthmark/static/file/
