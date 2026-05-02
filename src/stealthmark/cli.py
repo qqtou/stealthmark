@@ -102,9 +102,13 @@ def cmd_embed(args):
         _info(f'Watermark: {args.watermark}')
 
     if args.output and Path(args.output).exists():
-        if not args.force and not _confirm_overwrite(args.output):
-            _warn('Aborted.')
-            return 1
+        if not args.force:
+            if not sys.stdin.isatty():
+                _fail(f'Output file exists: {args.output}. Use -f to overwrite.')
+                return 1
+            if not _confirm_overwrite(args.output):
+                _warn('Aborted.')
+                return 1
     elif not args.output and input_path.exists():
         # 无 -o 时：原地覆盖，强制跳过确认
         pass
@@ -377,12 +381,16 @@ def cmd_batch(args):
     results = {'success': 0, 'failed': 0, 'skipped': 0, 'dryrun': 0}
     failed_list = []
 
+    # 检测控制台编码，GBK 环境使用 ASCII 进度条
+    use_ascii = sys.stdout.encoding and 'gbk' in sys.stdout.encoding.lower()
+
     # 并行处理
     if workers > 1 and len(files) > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(_process_one, item): item for item in work_items}
             for future in tqdm(as_completed(futures), total=len(futures),
-                               desc='Processing', unit='file', ncols=80):
+                               desc='Processing', unit='file', ncols=80,
+                               ascii=use_ascii):
                 outcome = future.result()
                 res_type = outcome[0]
                 results[res_type] = results.get(res_type, 0) + 1
@@ -393,7 +401,8 @@ def cmd_batch(args):
                     out = outcome[2] if outcome[2] else outcome[1]
                     print(f'  {_ok_str(Path(out).name)}  <--  {fname}')
     else:
-        for item in tqdm(work_items, desc='Processing', unit='file', ncols=80):
+        for item in tqdm(work_items, desc='Processing', unit='file', ncols=80,
+                         ascii=use_ascii):
             outcome = _process_one(item)
             res_type = outcome[0]
             results[res_type] = results.get(res_type, 0) + 1
@@ -414,8 +423,8 @@ def cmd_batch(args):
                 if not quiet:
                     print(f'  {_fail_str(f_path.name)}')
 
-    # 汇总
-    sep = '─' * 50
+    # 汇总（GBK 兼容分隔线）
+    sep = '-' * 50
     print(f'\n{sep}')
     print(_ok_str(f'Success:  {results["success"]}'))
     print(_fail_str(f'Failed:   {results["failed"]}'))
