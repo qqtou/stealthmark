@@ -595,7 +595,7 @@ class MP3Handler(BaseHandler):
                     watermark=WatermarkData(content=content),
                     file_path=file_path
                 )
-        except:
+        except Exception:
             pass
 
         return ExtractResult(

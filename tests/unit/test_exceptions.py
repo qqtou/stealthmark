@@ -4,7 +4,7 @@
 import unittest
 from stealthmark.core.exceptions import (
     StealthMarkError,
-    FileNotFoundError,
+    StealthMarkFileNotFoundError,
     UnsupportedFormatError,
     EmbedError,
     ExtractError,
@@ -22,7 +22,7 @@ class TestExceptions(unittest.TestCase):
         self.assertEqual(str(error), "base error")
 
     def test_file_not_found_error(self):
-        error = FileNotFoundError("file not found")
+        error = StealthMarkFileNotFoundError("file not found")
         self.assertIsInstance(error, StealthMarkError)
         self.assertEqual(str(error), "file not found")
 
@@ -52,7 +52,7 @@ class TestExceptions(unittest.TestCase):
 
     def test_exception_hierarchy(self):
         errors = [
-            FileNotFoundError,
+            StealthMarkFileNotFoundError,
             UnsupportedFormatError,
             EmbedError,
             ExtractError,

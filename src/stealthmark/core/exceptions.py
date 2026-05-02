@@ -4,7 +4,7 @@ StealthMark 异常类定义
 
 本模块定义了 StealthMark 的异常层次结构：
 - StealthMarkError: 所有异常的基类
-- FileNotFoundError: 文件不存在
+- StealthMarkFileNotFoundError: 文件不存在
 - UnsupportedFormatError: 不支持的文件格式
 - EmbedError/ExtractError/VerifyError: 操作失败
 - CodecError: 编解码失败
@@ -38,7 +38,7 @@ class StealthMarkError(Exception):
     pass
 
 
-class FileNotFoundError(StealthMarkError):
+class StealthMarkFileNotFoundError(StealthMarkError):
     """
     文件不存在异常
     
@@ -48,7 +48,7 @@ class FileNotFoundError(StealthMarkError):
         file_path: 不存在的文件路径
     
     Example:
-        >>> raise FileNotFoundError("文件不存在: /path/to/file.pdf")
+        >>> raise StealthMarkFileNotFoundError("文件不存在: /path/to/file.pdf")
     """
     pass
 
