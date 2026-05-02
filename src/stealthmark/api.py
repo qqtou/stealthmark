@@ -19,10 +19,12 @@ from .core.base import WatermarkStatus
 
 sm = StealthMark()
 
+from stealthmark import __version__
+
 app = FastAPI(
     title="StealthMark API",
     description="隐式水印工具 - Web API",
-    version="2.0.0",
+    version=__version__,
 )
 
 # Mount static files for test frontend
@@ -346,7 +348,7 @@ async def save_upload(file: UploadFile, suffix: str = "") -> str:
 async def root():
     return {
         "name": "StealthMark API",
-        "version": "2.0.0",
+        "version": __version__,
         "docs": "/docs",
         "health": "/health",
         "info": "/info",

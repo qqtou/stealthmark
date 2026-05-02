@@ -488,6 +488,9 @@ Examples:
         '''
     )
 
+    from . import __version__
+    parser.add_argument('-V', '--version', action='version',
+                        version=f'StealthMark {__version__}')
     parser.add_argument('-p', '--password', type=str, default=None,
                         help='Watermark encryption password')
 
