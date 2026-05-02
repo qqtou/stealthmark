@@ -119,7 +119,7 @@ class TIFFHandler(BaseHandler):
                     flat[i] = flat[i] & 0xFE
             
             embedded = flat.reshape(img_array.shape)
-            result_img = Image.fromarray(embedded.astype(np.uint8), mode=image.mode)
+            result_img = Image.fromarray(embedded.astype(np.uint8))
             result_img.save(output_path, format='TIFF')
             
             return self._create_success_result(output_path)
@@ -266,7 +266,7 @@ class WebPHandler(BaseHandler):
                     flat[i] = flat[i] & 0xFE
             
             embedded = flat.reshape(img_array.shape)
-            result_img = Image.fromarray(embedded.astype(np.uint8), mode='RGB')
+            result_img = Image.fromarray(embedded.astype(np.uint8))
             # Save as lossless WebP
             result_img.save(output_path, format='WEBP', lossless=True)
             

@@ -38,9 +38,6 @@ dependencies = [
     "soundfile>=0.12.0",
     "colorama>=0.4.6",
     "tqdm>=4.65.0",
-    "FastAPI>=0.100.0",
-    "uvicorn>=0.23.0",
-    "PyQt6>=6.5.0",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +50,16 @@ dev = [
 ]
 heic = [
     "pillow-heif>=0.12.0",
+]
+gui = [
+    "PyQt6>=6.5.0",
+]
+api = [
+    "FastAPI>=0.100.0",
+    "uvicorn>=0.23.0",
+]
+all = [
+    "stealthmark[dev,heic,gui,api]",
 ]
 
 [project.scripts]
