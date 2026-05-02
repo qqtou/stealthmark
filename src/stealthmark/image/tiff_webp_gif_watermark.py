@@ -39,26 +39,36 @@ logger = logging.getLogger(__name__)
 class TIFFHandler(BaseHandler):
     """
     TIFF图片水印处理器 - LSB隐写
-    
-    TIFF是无损格式，LSB隐写与PNG相同。
-    Pillow原生支持TIFF读写。
+
+    TIFF是无损格式，支持多种色彩空间和压缩方式。
+    使用LSB隐写方案：每像素存储1bit水印数据。
+
+    格式: [长度(32bit)][编码数据]
+    容量: 宽×高×通道数 bits
+
+    依赖:
+        Pillow: TIFF读写
+        numpy: 数值处理
     """
-    
+
     SUPPORTED_EXTENSIONS = ('.tiff', '.tif')
     HANDLER_NAME = "tiff"
-    
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
-    
+        logger.debug("TIFFHandler initialized")
+
     def _bytes_to_bits(self, data: bytes) -> list:
+        """字节序列转比特列表（高位在前）"""
         bits = []
         for byte in data:
             for i in range(7, -1, -1):
                 bits.append((byte >> i) & 1)
         return bits
-    
+
     def _bits_to_bytes(self, bits: list) -> bytes:
+        """比特列表转字节序列（高位在前）"""
         while len(bits) % 8 != 0:
             bits.append(0)
         result = bytearray()
@@ -68,9 +78,14 @@ class TIFFHandler(BaseHandler):
                 byte |= (bit << (7 - j))
             result.append(byte)
         return bytes(result)
-    
+
     def embed(self, file_path: str, watermark: WatermarkData,
               output_path: str, **kwargs) -> EmbedResult:
+        """
+        嵌入水印到 TIFF
+
+        将水印编码后嵌入像素LSB，保存为无损TIFF。
+        """
         logger.info(f"TIFF embed: {file_path} -> {output_path}")
         
         if Image is None:
@@ -114,6 +129,11 @@ class TIFFHandler(BaseHandler):
             return EmbedResult(status=WatermarkStatus.FAILED, message=f"嵌入失败: {str(e)}", file_path=file_path)
     
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
+        """
+        从 TIFF 提取水印
+
+        读取像素LSB，解析长度前缀后解码水印。
+        """
         logger.info(f"TIFF extract: {file_path}")
         
         if Image is None:
@@ -155,6 +175,7 @@ class TIFFHandler(BaseHandler):
             return ExtractResult(status=WatermarkStatus.EXTRACTION_FAILED, message=f"提取失败: {str(e)}", file_path=file_path)
     
     def verify(self, file_path, original_watermark, **kwargs):
+        """验证 TIFF 水印完整性"""
         extract_result = self.extract(file_path)
         if not extract_result.is_success or not extract_result.watermark:
             return VerifyResult(status=extract_result.status, is_valid=False, is_integrity_ok=False, match_score=0.0)
@@ -167,27 +188,37 @@ class TIFFHandler(BaseHandler):
 
 class WebPHandler(BaseHandler):
     """
-    WebP图片水印处理器 - LSB隐写 (无损模式)
-    
-    WebP支持无损模式，在无损模式下LSB隐写可行。
-    嵌入时强制使用无损编码。
+    WebP图片水印处理器 - LSB隐写（无损模式）
+
+    WebP支持有损和无损两种模式。
+    在无损模式下，像素值精确保留，LSB隐写可行。
+
+    限制:
+        - 必须保存为无损WebP才能保证水印可提取
+        - 有损WebP会破坏LSB信息
+
+    依赖:
+        Pillow: WebP读写（需8.0+版本）
     """
-    
+
     SUPPORTED_EXTENSIONS = ('.webp',)
     HANDLER_NAME = "webp"
-    
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
-    
+        logger.debug("WebPHandler initialized")
+
     def _bytes_to_bits(self, data: bytes) -> list:
+        """字节序列转比特列表（高位在前）"""
         bits = []
         for byte in data:
             for i in range(7, -1, -1):
                 bits.append((byte >> i) & 1)
         return bits
-    
+
     def _bits_to_bytes(self, bits: list) -> bytes:
+        """比特列表转字节序列（高位在前）"""
         while len(bits) % 8 != 0:
             bits.append(0)
         result = bytearray()
@@ -197,9 +228,14 @@ class WebPHandler(BaseHandler):
                 byte |= (bit << (7 - j))
             result.append(byte)
         return bytes(result)
-    
+
     def embed(self, file_path: str, watermark: WatermarkData,
               output_path: str, **kwargs) -> EmbedResult:
+        """
+        嵌入水印到 WebP（无损模式）
+
+        强制使用 lossless=True 保存，确保LSB数据精确保留。
+        """
         logger.info(f"WebP embed: {file_path} -> {output_path}")
         
         if Image is None:
@@ -241,6 +277,11 @@ class WebPHandler(BaseHandler):
             return EmbedResult(status=WatermarkStatus.FAILED, message=f"嵌入失败: {str(e)}", file_path=file_path)
     
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
+        """
+        从 WebP 提取水印
+
+        读取像素LSB，解析长度前缀后解码水印。
+        """
         logger.info(f"WebP extract: {file_path}")
         
         if Image is None:
@@ -280,6 +321,7 @@ class WebPHandler(BaseHandler):
             return ExtractResult(status=WatermarkStatus.EXTRACTION_FAILED, message=f"提取失败: {str(e)}", file_path=file_path)
     
     def verify(self, file_path, original_watermark, **kwargs):
+        """验证 WebP 水印完整性"""
         extract_result = self.extract(file_path)
         if not extract_result.is_success or not extract_result.watermark:
             return VerifyResult(status=extract_result.status, is_valid=False, is_integrity_ok=False, match_score=0.0)
@@ -293,25 +335,42 @@ class WebPHandler(BaseHandler):
 class GIFHandler(BaseHandler):
     """
     GIF图片水印处理器 - GIF Comment Extension
-    
+
     GIF使用索引颜色，LSB修改调色板索引会导致颜色偏移。
-    使用GIF Comment Extension (0x21 0xFE)嵌入水印，
-    这是GIF标准定义的注释块，不影响图像显示。
+    使用GIF Comment Extension (0x21 0xFE)嵌入水印：
+    这是GIF标准定义的注释块，不影响图像显示和色彩。
+
+    嵌入格式:
+        [Extension Introducer 0x21][Comment Label 0xFE]
+        [Block Size][Comment Data (Base64编码的水印)]...
+        [Block Terminator 0x00]
+
+    依赖:
+        仅使用Python标准库
+
+    限制:
+        - 元数据可被GIF处理工具清除
     """
-    
+
     SUPPORTED_EXTENSIONS = ('.gif',)
     HANDLER_NAME = "gif"
-    
+
     # GIF Extension codes
     COMMENT_EXT = 0xFE  # Comment Extension
     TRAILER = 0x3B      # GIF Trailer
-    
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
-    
+        logger.debug("GIFHandler initialized")
+
     def embed(self, file_path: str, watermark: WatermarkData,
               output_path: str, **kwargs) -> EmbedResult:
+        """
+        嵌入水印到 GIF
+
+        在 GIF Trailer (0x3B) 之前插入 Comment Extension。
+        """
         logger.info(f"GIF embed: {file_path} -> {output_path}")
         
         error_result = self._validate_file(file_path)
@@ -362,7 +421,11 @@ class GIFHandler(BaseHandler):
             return EmbedResult(status=WatermarkStatus.FAILED, message=f"嵌入失败: {str(e)}", file_path=file_path)
     
     def _remove_comments(self, data: bytes) -> bytes:
-        """Remove existing GIF comment extensions"""
+        """
+        移除 GIF 中现有的 Comment Extension 块
+
+        遍历 GIF 字节流，识别 0x21 0xFE 序列并跳过其后的子块。
+        """
         result = bytearray()
         i = 0
         while i < len(data):
@@ -382,6 +445,11 @@ class GIFHandler(BaseHandler):
         return bytes(result)
     
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
+        """
+        从 GIF 提取水印
+
+        遍历 GIF 数据块，搜索 Comment Extension 并解码。
+        """
         logger.info(f"GIF extract: {file_path}")
         
         error_result = self._validate_file(file_path)
@@ -435,6 +503,7 @@ class GIFHandler(BaseHandler):
             return ExtractResult(status=WatermarkStatus.EXTRACTION_FAILED, message=f"提取失败: {str(e)}", file_path=file_path)
     
     def verify(self, file_path, original_watermark, **kwargs):
+        """验证 GIF 水印完整性"""
         extract_result = self.extract(file_path)
         if not extract_result.is_success or not extract_result.watermark:
             return VerifyResult(status=extract_result.status, is_valid=False, is_integrity_ok=False, match_score=0.0)
