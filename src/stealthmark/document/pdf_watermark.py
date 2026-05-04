@@ -145,8 +145,15 @@ class PDFHandler(BaseHandler):
                 for key, value in reader.metadata.items():
                     writer.add_metadata({key: value})
             
-            # 编码水印
-            encoded_data = self.codec.encode(watermark.content)
+            embed_password = kwargs.get('password')
+            
+            # 编码水印（根据是否提供密码选择加密/普通模式）
+            if embed_password:
+                # 使用带密码的临时 codec 进行加密
+                temp_codec = WatermarkCodec(password=embed_password)
+                encoded_data = temp_codec.encode_with_encryption(watermark.content)
+            else:
+                encoded_data = self.codec.encode(watermark.content)
             encoded_b64 = self.codec.to_base64(encoded_data)
             
             # 添加水印元数据
@@ -210,6 +217,9 @@ class PDFHandler(BaseHandler):
             # 读取 PDF
             reader = PdfReader(file_path)
             
+            # 获取密码参数
+            password = kwargs.get('password')
+            
             # 检查元数据
             if not reader.metadata:
                 logger.warning("PDF has no metadata")
@@ -223,9 +233,15 @@ class PDFHandler(BaseHandler):
             smmark = reader.metadata.get('/SMMark', '')
             
             if smmark:
-                # 解码水印
+                # Base64 解码
                 encoded_data = self.codec.from_base64(smmark)
-                success, content, details = self.codec.decode(encoded_data)
+                
+                # 优先尝试解密解码（当嵌入时使用了密码）
+                if password:
+                    temp_codec = WatermarkCodec(password=password)
+                    success, content, details = temp_codec.decode_with_decryption(encoded_data)
+                else:
+                    success, content, details = self.codec.decode(encoded_data)
                 
                 if success:
                     logger.info(f"PDF extract success: {content[:30]}...")
