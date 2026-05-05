@@ -57,6 +57,7 @@ gui = [
 api = [
     "FastAPI>=0.100.0",
     "uvicorn>=0.23.0",
+    "slowapi>=0.1.9",
 ]
 all = [
     "stealthmark[dev,heic,gui,api]",
