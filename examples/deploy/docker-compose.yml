@@ -1,0 +1,62 @@
+# StealthMark Docker Compose 部署
+# 使用方法：
+#   1. 复制 certbot 证书到 ./certs/ 目录（首次需手动申请）
+#   2. 修改 nginx.conf 中的 your-domain.com 为你的域名
+#   3. 运行：docker compose up -d
+
+services:
+  stealthmark-api:
+    image: qqtou/stealthmark:latest
+    container_name: stealthmark-api
+    restart: unless-stopped
+    expose:
+      - "8000"                    # 仅内部暴露，不映射到宿主机
+    environment:
+      - STEALTHMARK_PORT=8000
+      - STEALTHMARK_HOST=0.0.0.0
+    volumes:
+      - file-data:/app/static/file  # 持久化文件存储
+      - ./config.ini:/app/config.ini:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - stealthmark-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: stealthmark-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/ssl/certs/stealthmark:ro
+      - file-data:/app/static/file:ro
+    depends_on:
+      stealthmark-api:
+        condition: service_healthy
+    networks:
+      - stealthmark-net
+
+  # 证书自动续期（每周日凌晨2点执行）
+  certbot:
+    image: certbot/certbot
+    container_name: stealthmark-certbot
+    volumes:
+      - ./certs:/etc/letsencrypt
+      - ./certs-challenge:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do sleep 604800 & wait $$!; certbot renew; done'"
+    networks:
+      - stealthmark-net
+
+volumes:
+  file-data:
+
+networks:
+  stealthmark-net:
+    driver: bridge
