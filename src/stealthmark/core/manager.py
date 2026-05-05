@@ -35,6 +35,16 @@ class StealthMark:
     """
     
     def __init__(self, password: Optional[str] = None):
+        """
+        初始化 StealthMark 实例
+
+        Args:
+            password: 水印加密密码（可选）。提供时启用 AES-256 加密模式。
+
+        Note:
+            初始化时自动注册所有内置格式处理器，
+            可通过 register_handler() 添加自定义处理器。
+        """
         self.password = password
         self.codec = WatermarkCodec(password=password)
         self._handlers: Dict[str, BaseHandler] = {}
@@ -80,7 +90,18 @@ class StealthMark:
         logger.debug(f"Builtin handlers registered: {len(self._handler_registry)}")
     
     def register_handler(self, handler_class: Type[BaseHandler]) -> None:
-        """注册水印处理器"""
+        """
+        注册水印处理器
+
+        实例化 handler 并按 SUPPORTED_EXTENSIONS 建立扩展名→处理器的映射。
+        同一扩展名后注册的处理器会覆盖先前的。
+
+        Args:
+            handler_class: 处理器类（须继承 BaseHandler）
+
+        Note:
+            注册失败（如依赖缺失）不会中断流程，仅记录错误日志。
+        """
         try:
             handler = handler_class()
             for ext in handler.SUPPORTED_EXTENSIONS:
@@ -91,7 +112,15 @@ class StealthMark:
             logger.error(f"Failed to register handler {handler_class.__name__}: {e}")
     
     def _get_handler(self, file_path: str) -> Optional[BaseHandler]:
-        """获取文件对应的处理器"""
+        """
+        根据文件扩展名查找对应的处理器
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            Optional[BaseHandler]: 匹配的处理器，无匹配时返回 None
+        """
         ext = Path(file_path).suffix.lower()
         handler = self._handlers.get(ext)
         if handler:
@@ -104,7 +133,7 @@ class StealthMark:
     
     def embed(self, file_path: str, watermark: str,
               output_path: Optional[str] = None, **kwargs) -> EmbedResult:
-        """"
+        """
         嵌入水印到文件
 
         Args:
