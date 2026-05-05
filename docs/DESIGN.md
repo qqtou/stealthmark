@@ -186,6 +186,38 @@ StealthMark 支持通用水印内容格式，适用于版权保护、来源溯�
 3. **简洁性**：核心字段仅6个，控制在100字节内
 4. **标准化**：时间戳用 ISO 8601，标识符用 DID/URI
 
+#### 3.3.6 JSON Schema 验证
+
+水印格式定义见 `schemas/watermark.schema.json`。
+
+**Python 验证示例**
+
+```python
+import json
+from jsonschema import validate, ValidationError
+
+with open('schemas/watermark.schema.json') as f:
+    schema = json.load(f)
+
+watermark = {"v": 1, "type": "copyright", ...}
+try:
+    validate(instance=watermark, schema=schema)
+    print("格式有效")
+except ValidationError as e:
+    print(f"格式错误: {e.message}")
+```
+
+**字段约束**
+
+| 字段 | 约束 |
+|------|------|
+| `v` | 1-99 |
+| `type` | 枚举5种类型 |
+| `issuer` | DID/URI/UUID正则，最长256字符 |
+| `timestamp` | ISO 8601正则 |
+| `payload` | 字符串最长1024，对象最多20属性，数组最多100元素 |
+| `nonce` | 16-32字符hex（8-16字节） |
+
 ---
 
 ## 4. 各格式水印方案
