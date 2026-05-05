@@ -247,7 +247,15 @@ class PNGHandler(ImageLSBHandler):
         if error_result:
             return error_result
         
+        # 检查是否启用 robust 模式
+        robust = kwargs.get('robust', False)
+        
         try:
+            if robust:
+                # Robust 模式：使用块均值方法，抗亮度/对比度/JPEG压缩攻击
+                return self._embed_robust(file_path, watermark, output_path)
+            
+            # LSB 模式（默认）
             # 打开图片
             image = Image.open(file_path)
             
@@ -285,7 +293,7 @@ class PNGHandler(ImageLSBHandler):
             )
     
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
-        """从 PNG 提取水印"""
+        """从 PNG 提取水印（自动检测 LSB 或 robust 模式）"""
         logger.info(f"PNG extract: {file_path}")
         
         if Image is None:
@@ -304,6 +312,21 @@ class PNGHandler(ImageLSBHandler):
                 file_path=file_path
             )
         
+        # 先尝试 LSB 模式提取
+        lsb_result = self._extract_lsb(file_path)
+        if lsb_result.is_success:
+            return lsb_result
+        
+        # LSB 失败，尝试 robust 模式提取
+        robust_result = self._extract_robust(file_path)
+        if robust_result.is_success:
+            return robust_result
+        
+        # 都失败，返回 LSB 错误（更有信息量）
+        return lsb_result
+    
+    def _extract_lsb(self, file_path: str) -> ExtractResult:
+        """LSB 模式提取"""
         try:
             image = Image.open(file_path)
             
@@ -349,6 +372,182 @@ class PNGHandler(ImageLSBHandler):
             return ExtractResult(
                 status=WatermarkStatus.EXTRACTION_FAILED,
                 message=f"提取失败: {str(e)}",
+                file_path=file_path
+            )
+    
+    def _embed_robust(self, file_path: str, watermark: WatermarkData,
+                        output_path: str) -> EmbedResult:
+        """
+        Robust 模式嵌入：使用块均值方法
+        
+        特点：
+        - 抗亮度/对比度变化
+        - 抗 JPEG 压缩
+        - 不抗几何变换（旋转、缩放、裁剪）
+        """
+        if cv2 is None:
+            return EmbedResult(
+                status=WatermarkStatus.FAILED,
+                message="需要安装 opencv-python: pip install opencv-python",
+                file_path=file_path
+            )
+        
+        try:
+            # 读取图片
+            pil_img = Image.open(file_path).convert('RGB')
+            img_array = np.array(pil_img)
+            img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            
+            # 编码水印
+            encoded_data = self.codec.encode(watermark.content)
+            
+            # 构建比特序列：同步头 + 数据
+            sync_header = [1, 0, 1, 0, 1, 0, 1, 0]
+            data_bits = sync_header + self._bytes_to_bits(encoded_data)
+            
+            # 转换到 YCrCb 空间
+            img_yuv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2YUV).astype(np.float32)
+            y_channel = img_yuv[:, :, 0].copy()
+            
+            h, w = y_channel.shape
+            block_h, block_w = h // 8, w // 8
+            
+            # 块均值阈值
+            HIGH = 180
+            LOW = 76
+            
+            bit_idx = 0
+            for bi in range(block_h):
+                for bj in range(block_w):
+                    if bit_idx >= len(data_bits):
+                        break
+                    
+                    block = y_channel[bi*8:(bi+1)*8, bj*8:(bj+1)*8].astype(float)
+                    mean_val = block.mean()
+                    
+                    if data_bits[bit_idx] == 1:
+                        if mean_val < HIGH:
+                            delta = HIGH - mean_val + 5
+                            block += delta
+                    else:
+                        if mean_val > LOW:
+                            delta = LOW - mean_val - 5
+                            block += delta
+                    
+                    y_channel[bi*8:(bi+1)*8, bj*8:(bj+1)*8] = block.clip(0, 255)
+                    bit_idx += 1
+                
+                if bit_idx >= len(data_bits):
+                    break
+            
+            img_yuv[:, :, 0] = y_channel
+            result_bgr = cv2.cvtColor(img_yuv.astype(np.uint8), cv2.COLOR_YUV2BGR)
+            result_rgb = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
+            result_pil = Image.fromarray(result_rgb)
+            result_pil.save(output_path, format='PNG')
+            
+            logger.info(f"PNG robust embed success: {bit_idx} bits")
+            return self._create_success_result(output_path)
+            
+        except Exception as e:
+            logger.error(f"PNG robust embed failed: {e}")
+            return EmbedResult(
+                status=WatermarkStatus.FAILED,
+                message=f"Robust 嵌入失败: {str(e)}",
+                file_path=file_path
+            )
+    
+    def _extract_robust(self, file_path: str) -> ExtractResult:
+        """
+        Robust 模式提取：块均值方法
+        
+        先尝试 LSB，失败后调用此方法
+        """
+        if cv2 is None:
+            return ExtractResult(
+                status=WatermarkStatus.FAILED,
+                message="需要安装 opencv-python",
+                file_path=file_path
+            )
+        
+        try:
+            pil_img = Image.open(file_path).convert('RGB')
+            img_array = np.array(pil_img)
+            img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            
+            img_yuv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2YUV).astype(np.float32)
+            y_channel = img_yuv[:, :, 0]
+            
+            h, w = y_channel.shape
+            block_h, block_w = h // 8, w // 8
+            
+            # 提取所有块均值
+            bits = []
+            MID = 128
+            for bi in range(block_h):
+                for bj in range(block_w):
+                    block = y_channel[bi*8:(bi+1)*8, bj*8:(bj+1)*8]
+                    bits.append(1 if block.mean() >= MID else 0)
+            
+            # 查找同步头
+            sync = [1, 0, 1, 0, 1, 0, 1, 0]
+            sync_idx = -1
+            for i in range(len(bits) - 8):
+                if bits[i:i+8] == sync:
+                    sync_idx = i + 8
+                    break
+            
+            if sync_idx == -1:
+                logger.debug("Robust sync header not found")
+                return ExtractResult(
+                    status=WatermarkStatus.EXTRACTION_FAILED,
+                    message="未找到同步头",
+                    file_path=file_path
+                )
+            
+            # 提取数据（最多 2KB）
+            MAX_DATA_SIZE = 2048
+            data_bits = bits[sync_idx:sync_idx + MAX_DATA_SIZE * 8]
+            
+            if len(data_bits) < 8:
+                return ExtractResult(
+                    status=WatermarkStatus.EXTRACTION_FAILED,
+                    message="数据不足",
+                    file_path=file_path
+                )
+            
+            # 转换为字节
+            data_bytes = bytearray()
+            for i in range(0, len(data_bits) - 7, 8):
+                byte = 0
+                for j in range(8):
+                    byte |= (data_bits[i+j] << (7-j))
+                data_bytes.append(byte)
+            
+            # 解码
+            success, content, details = self.codec.decode(bytes(data_bytes))
+            
+            if success:
+                logger.info(f"PNG robust extract success: {content[:30]}...")
+                return ExtractResult(
+                    status=WatermarkStatus.SUCCESS,
+                    message="水印提取成功 (robust 模式)",
+                    file_path=file_path,
+                    watermark=WatermarkData(content=content)
+                )
+            else:
+                logger.debug(f"Robust decode failed: {details}")
+                return ExtractResult(
+                    status=WatermarkStatus.EXTRACTION_FAILED,
+                    message=f"解码失败: {details.get('error', 'unknown')}",
+                    file_path=file_path
+                )
+        
+        except Exception as e:
+            logger.debug(f"Robust extraction error: {e}")
+            return ExtractResult(
+                status=WatermarkStatus.EXTRACTION_FAILED,
+                message=f"Robust 提取失败: {str(e)}",
                 file_path=file_path
             )
     
