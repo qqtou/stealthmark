@@ -1,4 +1,25 @@
+"""
+StealthMark GUI - PyQt6 based watermark tool UI.
+
+Provides a graphical interface for embedding, extracting, and verifying
+invisible watermarks across 30+ file formats (PDF, DOCX, PPTX, XLSX, ODT,
+ODP, ODS, EPUB, RTF, images, audio, video, etc.).
+
+Usage:
+    Run directly as a script to launch the GUI:
+        python -m stealthmark.gui
+
+    Or import and embed in an existing Qt application:
+        >>> from PyQt6.QtWidgets import QApplication
+        >>> from stealthmark.gui import MainWindow
+        >>> app = QApplication([])
+        >>> window = MainWindow()
+        >>> window.show()
+        >>> app.exec()
+"""
+
 import os
+import logging
 from pathlib import Path
 from typing import List
 
@@ -16,6 +37,8 @@ from PyQt6.QtGui import QAction
 from .core.manager import StealthMark
 from .core.base import WatermarkStatus
 
+# Module logger
+logger = logging.getLogger(__name__)
 
 # ==================== Supported Extensions ====================
 SUPPORTED_EXTENSIONS = {
@@ -55,6 +78,7 @@ class WatermarkWorker(QThread):
         self.overwrite = overwrite
         self._sm = StealthMark(password=self.password or None)
         self._cancelled = False
+        logger.debug(f"WatermarkWorker created: action={action}, files={len(files)}")
 
     def cancel(self):
         self._cancelled = True
@@ -68,12 +92,14 @@ class WatermarkWorker(QThread):
         return os.path.join(self.output_dir, out_name)
 
     def run(self):
+        logger.info(f"WatermarkWorker started: action={self.action}, total={len(self.files)}")
         success_count = 0
         failed_count = 0
         total = len(self.files)
 
         for idx, filepath in enumerate(self.files):
             if self._cancelled:
+                logger.info("WatermarkWorker cancelled by user")
                 break
             self.progress.emit(idx + 1, total, Path(filepath).name)
             try:
@@ -122,6 +148,7 @@ class WatermarkWorker(QThread):
                         failed_count += 1
 
             except Exception as e:
+                logger.error(f"WatermarkWorker exception for {filepath}: {e}")
                 self.result_ready.emit({
                     'filename': Path(filepath).name,
                     'success': False,
@@ -131,13 +158,27 @@ class WatermarkWorker(QThread):
                 })
                 failed_count += 1
 
+        logger.info(f"WatermarkWorker finished: success={success_count}, failed={failed_count}")
         self.finished_all.emit(success_count, failed_count)
 
 
 # ==================== Main Window ====================
 
 class MainWindow(QWidget):
+    """
+    StealthMark GUI main window.
+
+    Provides a PyQt6-based interface for watermark operations:
+    - Embed: embed invisible watermark into selected files
+    - Extract: extract watermark from files
+    - Verify: check if a watermark matches the expected value
+
+    Files can be added via file picker, folder picker, or drag-and-drop.
+    Results are displayed in a table with status, watermark content, and details.
+    """
+
     def __init__(self):
+        logger.debug("MainWindow.__init__ called")
         super().__init__()
         self._files: List[str] = []
         self._worker: WatermarkWorker = None
@@ -152,10 +193,12 @@ class MainWindow(QWidget):
         self._setup_ui()
         self._connect_signals()
         self._load_styles()
+        logger.info("MainWindow initialized")
 
     # ---- UI Setup ----
 
     def _setup_ui(self):
+        logger.debug("_setup_ui called")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 12)
         layout.setSpacing(6)
@@ -176,6 +219,7 @@ class MainWindow(QWidget):
         self._setup_results_panel(layout)
 
     def _setup_menu(self):
+        logger.debug("_setup_menu called")
         menubar = QMenuBar(self)
         file_menu = menubar.addMenu("文件")
         exit_action = QAction("退出", self)
@@ -191,6 +235,7 @@ class MainWindow(QWidget):
         layout.setMenuBar(menubar)
 
     def _setup_file_panel(self, parent_layout):
+        logger.debug("_setup_file_panel called")
         group = QGroupBox("文件选择")
         g = QVBoxLayout(group)
 
@@ -218,6 +263,7 @@ class MainWindow(QWidget):
         parent_layout.addWidget(group)
 
     def _setup_settings_panel(self, parent_layout):
+        logger.debug("_setup_settings_panel called")
         grid = QGridLayout()
 
         # Action mode
@@ -271,6 +317,7 @@ class MainWindow(QWidget):
         parent_layout.addWidget(group)
 
     def _setup_action_panel(self, parent_layout):
+        logger.debug("_setup_action_panel called")
         h = QHBoxLayout()
 
         self.btn_start = QPushButton("开始处理")
@@ -294,6 +341,7 @@ class MainWindow(QWidget):
         parent_layout.addLayout(h)
 
     def _setup_results_panel(self, parent_layout):
+        logger.debug("_setup_results_panel called")
         group = QGroupBox("处理结果")
         g = QVBoxLayout(group)
 
@@ -315,6 +363,7 @@ class MainWindow(QWidget):
         parent_layout.addWidget(group, 1)  # stretch
 
     def _load_styles(self):
+        logger.debug("_load_styles called")
         self.setStyle(QStyleFactory.create("Fusion"))
         palette = self.palette()
         palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(240, 240, 245))
@@ -333,6 +382,7 @@ class MainWindow(QWidget):
     # ---- Signals ----
 
     def _connect_signals(self):
+        logger.debug("_connect_signals called")
         self.btn_select_file.clicked.connect(self._on_select_file)
         self.btn_select_folder.clicked.connect(self._on_select_folder)
         self.btn_clear.clicked.connect(self._on_clear)
@@ -349,6 +399,7 @@ class MainWindow(QWidget):
         self._on_mode_changed(0)
 
     def _on_mode_changed(self, idx):
+        logger.debug(f"_on_mode_changed: idx={idx}")
         labels = ["嵌入水印", "提取水印", "验证水印"]
         mode = labels[idx]
         self.edit_watermark.setEnabled(mode != "提取水印")
@@ -357,24 +408,40 @@ class MainWindow(QWidget):
     # ---- File Handling ----
 
     def _add_files(self, paths: List[str]):
+        """
+        Add files to the file list, filtering by supported extensions.
+
+        Args:
+            paths: List of file paths to add.
+        """
+        logger.info(f"_add_files called: {len(paths)} paths")
+        added = 0
+        skipped_ext = 0
         for p in paths:
             if p in self._files:
                 continue
             ext = Path(p).suffix.lower()
             if ext not in SUPPORTED_EXTENSIONS:
+                skipped_ext += 1
                 continue
             self._files.append(p)
             self.file_list.addItem(p)
+            added += 1
         self._update_count()
+        logger.debug(f"_add_files done: added={added}, skipped_ext={skipped_ext}")
 
     def _on_select_file(self):
+        logger.debug("_on_select_file triggered")
         files, _ = QFileDialog.getOpenFileNames(
             self, "选择文件", os.getcwd(),
             "所有支持的文件 (*)",
         )
+        if files:
+            logger.info(f"File picker returned: {len(files)} files")
         self._add_files(files)
 
     def _on_select_folder(self):
+        logger.debug("_on_select_folder triggered")
         folder = QFileDialog.getExistingDirectory(self, "选择文件夹", os.getcwd())
         if not folder:
             return
@@ -383,9 +450,11 @@ class MainWindow(QWidget):
             for fname in fnames:
                 if Path(fname).suffix.lower() in SUPPORTED_EXTENSIONS:
                     files.append(os.path.join(root, fname))
+        logger.info(f"Folder scan found: {len(files)} files in {folder}")
         self._add_files(files)
 
     def _on_clear(self):
+        logger.info("_on_clear triggered")
         self._files.clear()
         self.file_list.clear()
         self._update_count()
@@ -394,6 +463,7 @@ class MainWindow(QWidget):
 
     def _on_drop(self, event):
         paths = [u.toLocalFile() for u in event.mimeData().urls()]
+        logger.info(f"Drop event: {len(paths)} files")
         self._add_files(paths)
 
     def _update_count(self):
@@ -403,15 +473,24 @@ class MainWindow(QWidget):
     # ---- Output ----
 
     def _on_browse_output(self):
+        logger.debug("_on_browse_output triggered")
         folder = QFileDialog.getExistingDirectory(
             self, "选择输出目录", self.edit_output_dir.text(),
         )
         if folder:
             self.edit_output_dir.setText(folder)
+            logger.debug(f"Output dir set to: {folder}")
 
     # ---- Processing ----
 
     def _on_start(self):
+        """
+        Validate inputs and kick off watermark processing.
+
+        Checks that files are selected, watermark content is provided
+        (for embed/verify), and output directory is valid.
+        """
+        logger.info("_on_start triggered")
         if not self._files:
             QMessageBox.warning(self, "提示", "请先选择文件！")
             return
@@ -431,9 +510,17 @@ class MainWindow(QWidget):
                 self.edit_output_dir.setFocus()
                 return
 
+        logger.info(f"_on_start validated: action={action}, files={len(self._files)}")
         self._start_processing(action)
 
     def _start_processing(self, action: str):
+        """
+        Start the background watermark worker thread.
+
+        Args:
+            action: One of 'embed', 'extract', or 'verify'.
+        """
+        logger.info(f"_start_processing: action={action}")
         self.btn_start.setEnabled(False)
         self.table.setRowCount(0)
         self._result_rows.clear()
@@ -453,6 +540,7 @@ class MainWindow(QWidget):
         self._worker.result_ready.connect(self._on_result)
         self._worker.finished_all.connect(self._on_finished)
         self._worker.start()
+        logger.info("WatermarkWorker thread started")
 
     def _on_progress(self, current: int, total: int, filename: str):
         pct = int(current / total * 100)
@@ -460,9 +548,17 @@ class MainWindow(QWidget):
         self.lbl_status.setText(f"[{current}/{total}] {filename}")
 
     def _on_result(self, data: dict):
+        """
+        Handle a single file result from the worker thread.
+
+        Args:
+            data: Dict with keys: filename, success, message,
+                  watermark, match.
+        """
+        fn = data['filename']
+        logger.debug(f"_on_result: filename={fn}, success={data['success']}")
         row = self.table.rowCount()
         self.table.insertRow(row)
-        fn = data['filename']
         self._result_rows[fn] = row
 
         # Status icon + text
@@ -487,6 +583,7 @@ class MainWindow(QWidget):
         self.table.resizeRowsToContents()
 
     def _on_finished(self, success: int, failed: int):
+        logger.info(f"_on_finished: success={success}, failed={failed}")
         self.btn_start.setEnabled(True)
         self.progress_bar.setValue(100)
         total = success + failed
@@ -496,6 +593,7 @@ class MainWindow(QWidget):
     # ---- About ----
 
     def _about(self):
+        logger.debug("_about triggered")
         QMessageBox.about(
             self,
             "关于 StealthMark",
