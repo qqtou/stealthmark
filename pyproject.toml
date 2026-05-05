@@ -1,86 +1,149 @@
+# StealthMark 项目构建与依赖配置
+# 详细说明见各节注释
+
+# =============================================
+# 构建系统配置
+# =============================================
 [build-system]
+# 构建所需的最小工具版本
 requires = ["setuptools>=61.0", "wheel"]
+# 使用 setuptools 作为构建后端
 build-backend = "setuptools.build_meta"
 
+# =============================================
+# 项目元信息
+# =============================================
 [project]
+# PyPI 包名（pip install stealthmark）
 name = "stealthmark"
+# 当前版本号，遵循语义化版本（Semantic Versioning）
 version = "0.1.0"
+# 一句话描述（pip search / PyPI 首页展示）
 description = "隐式水印工具 - 为文档、图片、音视频添加隐藏水印"
+# 长描述文件（PyPI 项目页面的 README）
 readme = "README.md"
+# 开源协议
 license = {text = "MIT"}
+# 作者信息
 authors = [
     {name = "StealthMark Team", email = "contact@stealthmark.dev"}
 ]
+# 支持的 Python 版本范围
 requires-python = ">=3.8"
+# PyPI 分类标签（影响包的可见性和分类）
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Legal Industry",
-    "Topic :: Security",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
+    "Development Status :: 3 - Alpha",          # 开发阶段：Alpha
+    "Intended Audience :: Developers",          # 目标用户：开发者
+    "Intended Audience :: Legal Industry",      # 目标用户：法律行业（版权保护场景）
+    "Topic :: Security",                        # 主题：安全
+    "License :: OSI Approved :: MIT License",   # 协议
+    "Programming Language :: Python :: 3",      # Python 3 系列
+    "Programming Language :: Python :: 3.8",    # 具体支持版本
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
+# 搜索关键词
 keywords = ["watermark", "steganography", "security", "document", "image", "audio", "video"]
 
+# =============================================
+# 核心依赖（pip install stealthmark 自动安装）
+# =============================================
 dependencies = [
+    # 加密库：水印 AES-256 加密
     "cryptography>=41.0.0",
+    # PDF 处理：元数据水印嵌入/提取
     "PyPDF2>=3.0.0",
+    # DOCX 处理：零宽字符水印
     "python-docx>=0.8.11",
+    # PPTX 处理：隐藏形状水印
     "python-pptx>=0.6.21",
+    # 图片处理：LSB/DCT 隐写水印
     "Pillow>=10.0.0",
+    # 图像处理扩展：OpenCV 用于鲁棒水印的块均值计算
     "opencv-python>=4.8.0",
+    # 音频处理：WAV 扩频水印的 FFT/iFFT
     "librosa>=0.10.0",
+    # 音频读写：WAV/FLAC 文件 I/O
     "soundfile>=0.12.0",
+    # 终端彩色输出：CLI 日志和状态提示
     "colorama>=0.4.6",
+    # 进度条：批量处理进度展示
     "tqdm>=4.65.0",
 ]
 
+# =============================================
+# 可选依赖组（按需安装）
+# 安装方式：pip install stealthmark[api]
+# =============================================
 [project.optional-dependencies]
+# 开发工具：测试、代码质量检查、格式化、类型检查
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "flake8>=6.0.0",
-    "black>=23.0.0",
-    "mypy>=1.5.0",
+    "pytest>=7.4.0",       # 测试框架
+    "pytest-cov>=4.1.0",   # 测试覆盖率
+    "flake8>=6.0.0",       # 代码风格检查
+    "black>=23.0.0",       # 代码格式化
+    "mypy>=1.5.0",         # 静态类型检查
 ]
+# HEIC 图片支持：Apple HEIF/HEIC 格式水印（需要额外系统库）
 heic = [
     "pillow-heif>=0.12.0",
 ]
+# GUI 依赖：PyQt6 桌面图形界面
 gui = [
     "PyQt6>=6.5.0",
 ]
+# Web API 依赖：FastAPI + uvicorn HTTP 服务
 api = [
-    "FastAPI>=0.100.0",
-    "uvicorn>=0.23.0",
-    "slowapi>=0.1.9",
+    "FastAPI>=0.100.0",   # Web 框架
+    "uvicorn>=0.23.0",    # ASGI 服务器
+    "slowapi>=0.1.9",     # 请求限流
 ]
+# 全部安装：pip install stealthmark[all]
 all = [
     "stealthmark[dev,heic,gui,api]",
 ]
 
+# =============================================
+# CLI 入口点
+# 安装后可直接在终端使用 `stealthmark` 命令
+# =============================================
 [project.scripts]
 stealthmark = "stealthmark.cli:main"
 
+# =============================================
+# 项目链接
+# =============================================
 [project.urls]
 Homepage = "https://github.com/qqtou/stealthmark"
 Repository = "https://github.com/qqtou/stealthmark.git"
 
+# =============================================
+# setuptools 包查找配置
+# 告诉 setuptools 从 src/ 目录查找 Python 包
+# =============================================
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# =============================================
+# 非代码资源文件打包
+# static/ 目录下的文件会被包含在安装包中
+# =============================================
 [tool.setuptools.package-data]
 stealthmark = ["static/**/*"]
 
+# =============================================
+# Black 代码格式化配置
+# =============================================
 [tool.black]
-line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311']
+line-length = 100                            # 每行最大 100 字符
+target-version = ['py38', 'py39', 'py310', 'py311']  # 兼容的 Python 版本
 
+# =============================================
+# pytest 测试配置
+# =============================================
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_functions = ["test_*"]
+testpaths = ["tests"]            # 测试文件目录
+python_files = ["test_*.py"]     # 测试文件命名模式
+python_functions = ["test_*"]    # 测试函数命名模式
