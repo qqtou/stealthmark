@@ -81,9 +81,11 @@ class WatermarkWorker(QThread):
         logger.debug(f"WatermarkWorker created: action={action}, files={len(files)}")
 
     def cancel(self):
+        """取消正在运行的处理任务。"""
         self._cancelled = True
 
     def _output_path(self, src_path: str) -> str:
+        """根据命名模式计算输出路径。覆盖模式时直接返回原路径。"""
         src = Path(src_path)
         if self.overwrite:
             return str(src)
@@ -92,6 +94,7 @@ class WatermarkWorker(QThread):
         return os.path.join(self.output_dir, out_name)
 
     def run(self):
+        """工作线程主循环：逐文件执行嵌入/提取/验证，发射进度和结果信号。"""
         logger.info(f"WatermarkWorker started: action={self.action}, total={len(self.files)}")
         success_count = 0
         failed_count = 0

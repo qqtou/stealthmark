@@ -1,3 +1,24 @@
+"""StealthMark Web API — 基于 FastAPI 的隐式水印服务
+
+提供 RESTful 接口，支持水印嵌入、提取、验证及批量处理。
+内置日期目录文件存储（可配置保留期）、速率限制（slowapi）、
+以及标准水印 JSON 格式校验与生成。
+
+快速启动:
+    uvicorn stealthmark.api:app --host 0.0.0.0 --port 8001
+
+端点一览:
+    POST /embed           嵌入水印（返回 UUID 下载令牌）
+    POST /extract         提取水印
+    POST /verify          验证水印
+    POST /batch           批量处理
+    POST /validate        校验水印 JSON 格式
+    POST /watermark/generate  生成标准水印 JSON
+    GET  /output-file/{id}    下载输出文件
+    GET  /health          健康检查
+    GET  /info            支持格式信息
+"""
+
 import os
 import json
 import uuid
@@ -125,6 +146,14 @@ class FileStore:
         retention_days: int = FILE_RETENTION_DAYS,
         cleanup_interval: int = FILE_CLEANUP_INTERVAL,
     ):
+        """
+        初始化文件存储
+
+        Args:
+            base_dir: 存储根目录，默认从 config.ini 读取
+            retention_days: 文件保留天数，0 表示永久保留
+            cleanup_interval: 清理线程扫描间隔（秒）
+        """
         self._base_dir = Path(base_dir)
         self._retention_days = retention_days
         self._lock = threading.Lock()
@@ -138,10 +167,12 @@ class FileStore:
 
     @property
     def retention_days(self) -> int:
+        """文件保留天数"""
         return self._retention_days
 
     @property
     def base_dir(self) -> Path:
+        """存储根目录"""
         return self._base_dir
 
     def start_cleanup(self):
@@ -157,6 +188,7 @@ class FileStore:
         self._running = False
 
     def _cleanup_loop(self):
+        """后台清理循环：定期删除过期文件"""
         while self._running:
             time.sleep(self._cleanup_interval)
             self.cleanup_expired()
@@ -299,6 +331,7 @@ async def shutdown_event():
 # ==================== Pydantic Models ====================
 
 class EmbedResponse(BaseModel):
+    """水印嵌入响应"""
     success: bool
     watermark: str
     file_id: Optional[str] = None   # UUID token for download
@@ -307,6 +340,7 @@ class EmbedResponse(BaseModel):
 
 
 class ExtractResponse(BaseModel):
+    """水印提取响应"""
     success: bool
     watermark: Optional[str] = None
     format: str
@@ -315,6 +349,7 @@ class ExtractResponse(BaseModel):
 
 
 class VerifyResponse(BaseModel):
+    """水印验证响应"""
     success: bool
     match: bool
     extracted: Optional[str] = None
@@ -323,6 +358,7 @@ class VerifyResponse(BaseModel):
 
 
 class BatchFileResult(BaseModel):
+    """批量处理单个文件的结果"""
     filename: str
     success: bool
     message: str
@@ -332,6 +368,7 @@ class BatchFileResult(BaseModel):
 
 
 class BatchResponse(BaseModel):
+    """批量处理汇总响应"""
     total: int
     success: int
     failed: int
@@ -339,23 +376,27 @@ class BatchResponse(BaseModel):
 
 
 class WatermarkValidationResponse(BaseModel):
+    """水印 JSON 格式校验响应"""
     valid: bool
     errors: List[str]
     data: Optional[dict] = None
 
 
 class GenerateWatermarkRequest(BaseModel):
+    """水印 JSON 生成请求"""
     type: str = "watermark"
     issuer: str
     payload: Optional[str] = None
 
 
 class GenerateWatermarkResponse(BaseModel):
+    """水印 JSON 生成响应"""
     watermark: str
     data: dict
 
 
 class InfoResponse(BaseModel):
+    """支持格式信息响应"""
     handlers: int
     formats: dict
 

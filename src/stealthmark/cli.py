@@ -62,6 +62,7 @@ def _warn_str(text):  return _color(f'{_WARN} {text}', _C.YELLOW + _S.BRIGHT)
 
 
 def setup_logging(verbose: bool = False, quiet: bool = False):
+    """配置日志级别。默认 WARNING，-v 开 DEBUG，-q 仅 ERROR。"""
     if quiet:
         level = logging.ERROR
     elif verbose:
@@ -89,6 +90,7 @@ def setup_logging(verbose: bool = False, quiet: bool = False):
 # ==================== 核心命令 ====================
 
 def cmd_embed(args):
+    """处理 embed 子命令：嵌入水印到文件。"""
     wm = StealthMark(password=args.password)
 
     input_path = Path(args.input)
@@ -136,6 +138,7 @@ def cmd_embed(args):
 
 
 def cmd_extract(args):
+    """处理 extract 子命令：从文件中提取水印。"""
     wm = StealthMark(password=args.password)
 
     path = Path(args.file)
@@ -163,6 +166,7 @@ def cmd_extract(args):
 
 
 def cmd_verify(args):
+    """处理 verify 子命令：验证文件水印完整性。"""
     wm = StealthMark(password=args.password)
 
     result = wm.verify(
@@ -187,6 +191,7 @@ def cmd_verify(args):
 
 
 def cmd_info(args):
+    """处理 info 子命令：显示所有支持的文件格式。"""
     wm = StealthMark()
     formats = wm.supported_formats()
 
@@ -320,6 +325,9 @@ _BATCH_WM = None
 
 
 def cmd_batch(args):
+    """处理 batch 子命令：批量嵌入/提取/验证多个文件。
+
+    支持：并行处理、扩展名过滤、命名模式、dry-run、进度条。"""
     global _BATCH_WM
     from tqdm import tqdm
 
@@ -474,6 +482,7 @@ def _show_handler_hint(suffix):
 # ==================== 主入口 ====================
 
 def main():
+    """CLI 入口：解析参数并分派到对应子命令。"""
     parser = argparse.ArgumentParser(
         description='StealthMark - Invisible Watermark Tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
