@@ -1,22 +1,69 @@
-# StealthMark HTTPS 部署方案
+# StealthMark 部署指南
 
-## 方案一：nginx 反向代理（推荐生产环境）
+本目录提供三种部署方案，从简单到生产级。
+
+---
+
+## 方案一：Docker Compose 一键部署（推荐）
+
+适合快速体验和小型生产环境。
+
+### 前置条件
+
+- Docker 20.10+
+- Docker Compose v2+
+- 已解析到服务器的域名（申请 SSL 证书用）
+
+### 部署步骤
+
+```bash
+cd examples/deploy
+
+# 1. 首次申请 Let's Encrypt 证书
+# 先创建目录
+mkdir -p certs-challenge certs/live/your-domain.com
+
+# 使用 certbot 申请证书（需要域名已解析到服务器）
+docker run --rm \
+  -v "$(pwd)/certs-challenge:/var/www/certbot" \
+  -v "$(pwd)/certs:/etc/letsencrypt" \
+  certbot/certbot certonly \
+  --webroot -w /var/www/certbot \
+  -d your-domain.com \
+  --email your@email.com \
+  --agree-tos --no-eff-email
+
+# 2. 修改 nginx.conf 中的 your-domain.com 为实际域名
+# 3. 启动服务
+docker compose up -d
+
+# 4. 验证
+curl http://localhost:8000/health
+```
+
+### 更新配置后重载
+
+```bash
+docker compose down
+# 修改 nginx.conf 或其他配置
+docker compose up -d --build
+```
+
+---
+
+## 方案二：nginx 反向代理（已有服务器）
+
+适合已有 Web 服务器的场景。
 
 ```nginx
-# examples/deploy/nginx.conf
 server {
     listen 443 ssl http2;
     server_name your-domain.com;
 
-    # TLS 证书（Let's Encrypt 自动续期推荐 certbot）
     ssl_certificate     /etc/ssl/certs/stealthmark.crt;
     ssl_certificate_key /etc/ssl/private/stealthmark.key;
-
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
-    ssl_prefer_server_ciphers off;
 
-    # 上传文件大小限制（默认 100MB，StealthMark 最大水印文件）
     client_max_body_size 200M;
 
     location / {
@@ -25,158 +72,79 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
-        # 超时配置
         proxy_connect_timeout 60s;
         proxy_send_timeout 300s;
         proxy_read_timeout 300s;
-
-        # 文件上传需要较大的 client body
-        client_max_body_size 200M;
     }
 }
 ```
 
-### 部署步骤
-
 ```bash
-# 1. 申请证书（Let's Encrypt）
+# 安装证书（Let's Encrypt）
 sudo certbot --nginx -d your-domain.com
 
-# 2. 复制配置文件
-sudo cp nginx.conf /etc/nginx/sites-available/stealthmark
-sudo ln -s /etc/nginx/sites-available/stealthmark /etc/nginx/sites-enabled/
-
-# 3. 测试并重载
-sudo nginx -t
-sudo systemctl reload nginx
-
-# 4. 启动 StealthMark API
+# 启动 API
 cd /path/to/stealthmark
 uvicorn stealthmark.api:app --host 127.0.0.1 --port 8000
 ```
 
 ---
 
-## 方案二：Caddy（更简单，自动 HTTPS）
+## 方案三：Caddy（最简单，自动 HTTPS）
 
-```caddy
-# examples/deploy/Caddyfile
-# 一行配置，自动 Let's Encrypt + TLS 1.3
+```bash
+# 安装 Caddy
+# https://caddyserver.com/docs/install
+
+# 创建 Caddyfile
 your-domain.com {
     reverse_proxy localhost:8000
     encode gzip
-
-    # 上传文件限制
-    request_body /api/* {
+    request_body /embed* {
         max_size 200MB
     }
 }
-```
 
-```bash
-# 部署
-wget -O caddy "https://github.com/caddyserver/caddy/releases/latest/download/GETTING_STARTED.html"
-# 或按官方文档安装
-curl -fsSL https://getcaddy.com | bash
-
-# 启动 Caddy
-caddy run --config Caddyfile
+# 启动
+caddy run
 ```
 
 ---
 
-## 方案三：Docker Compose 一键部署（推荐）
+## 文件说明
 
-```yaml
-# examples/deploy/docker-compose.yml
-services:
-  stealthmark-api:
-    image: qqtou/stealthmark:latest
-    container_name: stealthmark-api
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8000:8000"  # 仅本地暴露，由代理对外
-    volumes:
-      - ./data:/app/data       # 持久化存储
-      - ./config.ini:/app/config.ini
-    environment:
-      - STEALTHMARK_PORT=8000
-      - STEALTHMARK_HOST=0.0.0.0
-    command: uvicorn stealthmark.api:app --host 0.0.0.0 --port 8000
+| 文件 | 说明 |
+|------|------|
+| `docker-compose.yml` | Docker Compose 部署配置 |
+| `nginx.conf` | nginx 反向代理配置（含 TLS） |
+| `Caddyfile` | Caddy 一键 HTTPS 配置 |
 
-  nginx:
-    image: nginx:alpine
-    container_name: stealthmark-nginx
-    restart: unless-stopped
-    ports:
-      - "443:443"
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - /etc/ssl/certs/stealthmark.crt:/etc/ssl/certs/stealthmark.crt:ro
-      - /etc/ssl/private/stealthmark.key:/etc/ssl/private/stealthmark.key:ro
-    depends_on:
-      - stealthmark-api
+---
 
-  # 自动续期证书（每周检查）
-  certbot:
-    image: certbot/certbot
-    container_name: stealthmark-certbot
-    volumes:
-      - ./data/certbot/www:/var/www/certbot
-      - ./data/certbot/conf:/etc/letsencrypt
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 86400 & wait $$!; done'"
+## 目录结构
+
 ```
-
-```bash
-# 部署
-cd examples/deploy
-docker compose up -d
-
-# 首次申请证书（需域名已解析）
-docker run --rm -v ./data/certbot/www:/var/www/certbot \
-  -v ./data/certbot/conf:/etc/letsencrypt \
-  certbot/certbot certonly --webroot -w /var/www/certbot \
-  -d your-domain.com --email your@email.com --agree-tos --no-eff-email
+examples/deploy/
+├── docker-compose.yml   # Docker Compose 配置
+├── nginx.conf           # nginx 配置模板
+├── Caddyfile            # Caddy 配置模板
+├── certs/               # SSL 证书（需手动申请后放入）
+│   └── live/
+│       └── your-domain.com/
+├── certs-challenge/     # certbot ACME 挑战目录
+└── README.md            # 本文件
 ```
 
 ---
 
-## Java 客户端信任证书（自签名测试环境）
+## 常见问题
 
-如果用自签名证书，Java 客户端需要导入证书：
+**Q：docker-compose up 报 `image not found`？**
+A：使用 `docker compose up -d --build` 从本地源码构建，或先推送到 Docker Hub 再 pull。
 
-```java
-// 方法1：导入系统证书库
-// keytool -importcert -trustcacerts -file your-cert.crt -alias stealthmark -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit
+**Q：证书申请失败？**
+A：确保域名已解析到服务器，且 80 端口未被占用。
 
-// 方法2：OkHttp 信任自签名（仅测试用）
-private static final TrustManager[] INSECURE_TRUST_MANAGER = new TrustManager[]{
-    new X509TrustManager() {
-        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-        public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-        public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-    }
-};
-
-OkHttpClient client = new OkHttpClient.Builder()
-    .sslSocketFactory(createSSLFactory(), (X509TrustManager) INSECURE_TRUST_MANAGER[0])
-    .hostnameVerifier((hostname, session) -> true)  // ⚠️ 仅测试
-    .build();
-```
-
-**生产环境**：用 Let's Encrypt 或商业 CA 签发的证书，Java 客户端无需任何修改。
-
----
-
-## 快速验证
-
-```bash
-# 检查 HTTPS 是否生效
-curl -I https://your-domain.com/api/health
-
-# 检查 TLS 版本和加密套件
-curl -v https://your-domain.com/api/health 2>&1 | grep -E "SSL|TLS|cipher"
-```
+**Q：文件上传超时？**
+A：nginx 和 uvicorn 的超时都需要调大，参考方案一中的配置。
