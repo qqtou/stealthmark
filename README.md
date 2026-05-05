@@ -218,6 +218,91 @@ curl -X POST http://localhost:8000/verify \
   -F "watermark=版权所有 2026"
 ```
 
+## 水印内容格式
+
+StealthMark 支持通用水印内容格式，适用于版权保护、来源溯源、品牌保护等多种场景。
+
+### 格式规范
+
+```json
+{
+  "v": 1,
+  "type": "copyright",
+  "issuer": "did:example:123abc",
+  "timestamp": "2026-05-05T10:34:00Z",
+  "payload": "任意内容",
+  "nonce": "a1b2c3d4"
+}
+```
+
+### 字段定义
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `v` | int | 是 | 格式版本号，当前为 `1` |
+| `type` | string | 是 | 水印类型，见下表 |
+| `issuer` | string | 是 | 签发者标识（DID/URI/UUID） |
+| `timestamp` | string | 是 | ISO 8601 时间戳 |
+| `payload` | string | 否 | 自定义内容 |
+| `nonce` | string | 是 | 随机数（防重放，8-16字节hex） |
+
+### 水印类型
+
+| type | 用途 |
+|------|------|
+| `copyright` | 版权声明 |
+| `provenance` | 来源溯源 |
+| `watermark` | 通用水印 |
+| `brand` | 品牌保护 |
+| `tracking` | 泄露追踪 |
+
+### 使用示例
+
+**版权保护场景**
+
+```json
+{
+  "v": 1,
+  "type": "copyright",
+  "issuer": "did:web:copyright.example.com",
+  "timestamp": "2026-05-05T10:34:00Z",
+  "payload": "work_id:ABC123",
+  "nonce": "f3e2d1c0"
+}
+```
+
+**个人水印**
+
+```json
+{
+  "v": 1,
+  "type": "watermark",
+  "issuer": "did:key:z6MkhaXgPB...",
+  "timestamp": "2026-05-05T10:34:00Z",
+  "nonce": "12345678"
+}
+```
+
+**品牌保护**
+
+```json
+{
+  "v": 1,
+  "type": "brand",
+  "issuer": "https://brand.example.com",
+  "timestamp": "2026-05-05T10:34:00Z",
+  "payload": "official",
+  "nonce": "abcdef12"
+}
+```
+
+### 设计原则
+
+1. **通用性**：不绑定特定业务，`payload` 可放任意内容
+2. **可扩展**：`v` 字段支持未来版本演进
+3. **简洁性**：核心字段仅6个，控制在100字节内
+4. **标准化**：时间戳用 ISO 8601，标识符用 DID/URI
+
 ## 水印格式
 
 编码流程：原文 → UTF-8 → CRC32 → 格式封装
