@@ -1,4 +1,3 @@
-# media/webm_handler.py
 """
 WebM视频水印处理器 - VP9无损编码 + LSB
 
@@ -31,56 +30,71 @@ logger = logging.getLogger(__name__)
 class WebMHandler(BaseHandler):
     """
     WebM视频水印处理器
-    
+
     使用VP9无损编码 + RGB Blue通道LSB嵌入。
     VP9无损模式在RGB空间工作，像素级精确。
     """
-    
+
     SUPPORTED_EXTENSIONS = ('.webm',)
     HANDLER_NAME = "webm"
-    
+
     SYNC_PATTERN = bytes([0xAA] * 4)
-    
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
         self.ffmpeg_path = get_ffmpeg_path()
-    
+        logger.debug("WebMHandler initialized")
+
     def embed(self, file_path: str, watermark,
               output_path: str, **kwargs) -> EmbedResult:
+        """
+        嵌入水印到 WebM 文件
+
+        使用 VP9 无损编码 + Blue 通道 LSB 隐写方式嵌入水印。
+
+        Args:
+            file_path (str): 源 WebM 文件路径
+            watermark (WatermarkData): 水印数据
+            output_path (str): 输出文件路径
+            **kwargs: 其他参数
+
+        Returns:
+            EmbedResult: 嵌入结果
+        """
         logger.info(f"WebM embed: {file_path}")
-        
+
         try:
             if hasattr(watermark, 'content'):
                 text = watermark.content
             else:
                 text = str(watermark)
-            
+
             encoded = self.codec.encode(text)
             payload = self.SYNC_PATTERN + encoded
             bits = ''.join(format(b, '08b') for b in payload)
-            
+
             import imageio
             reader = imageio.get_reader(file_path)
             meta = reader.get_meta_data()
             fps = meta.get('fps', 30)
-            
+
             frames = []
             for frame in reader:
                 frames.append(frame.copy())
             reader.close()
-            
+
             if not frames:
                 return EmbedResult(status=WatermarkStatus.FAILED, message="视频无帧数据", file_path=file_path)
-            
+
             # Embed in first frame Blue channel
             first_frame = frames[0].copy()
             h, w = first_frame.shape[0], first_frame.shape[1]
             capacity = h * w
-            
+
             if capacity < len(bits):
                 return EmbedResult(status=WatermarkStatus.FAILED, message=f"帧容量不足: {capacity} < {len(bits)}", file_path=file_path)
-            
+
             bit_idx = 0
             for i in range(h):
                 for j in range(w):
@@ -90,17 +104,17 @@ class WebMHandler(BaseHandler):
                     bit_idx += 1
                 if bit_idx >= len(bits):
                     break
-            
+
             frames[0] = first_frame
-            
+
             # Write frames as PNG sequence
             tmp_dir = tempfile.mkdtemp(prefix='stealthmark_')
             frame_pattern = os.path.join(tmp_dir, 'frame_%08d.png')
-            
+
             import imageio.v3 as iio
             for i, f in enumerate(frames):
                 iio.imwrite(frame_pattern % i, f)
-            
+
             # Encode with VP9 lossless
             temp_video = os.path.join(tmp_dir, 'output.webm')
             cmd = [
@@ -112,9 +126,10 @@ class WebMHandler(BaseHandler):
                 '-pix_fmt', 'rgb24',
                 temp_video
             ]
-            
+
+            logger.debug(f"Running ffmpeg: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode != 0:
                 logger.warning(f"VP9 lossless failed: {result.stderr[:200]}")
                 # Cleanup and fail
@@ -124,17 +139,25 @@ class WebMHandler(BaseHandler):
                     message=f"VP9无损编码失败: {result.stderr[:100]}",
                     file_path=file_path
                 )
-            
+
             shutil.copy2(temp_video, output_path)
             self._cleanup_tmp(tmp_dir, len(frames))
-            
+
             return self._create_success_result(output_path)
-            
+
         except Exception as e:
             logger.error(f"WebM embed failed: {e}")
             return EmbedResult(status=WatermarkStatus.FAILED, message=f"嵌入失败: {str(e)}", file_path=file_path)
-    
-    def _cleanup_tmp(self, tmp_dir, n_frames):
+
+    def _cleanup_tmp(self, tmp_dir: str, n_frames: int) -> None:
+        """
+        清理临时目录
+
+        Args:
+            tmp_dir (str): 临时目录路径
+            n_frames (int): 帧数量（用于清理帧文件）
+        """
+        logger.debug(f"Cleaning up tmp dir: {tmp_dir}")
         frame_pattern = os.path.join(tmp_dir, 'frame_%08d.png')
         for i in range(n_frames + 5):
             try:
@@ -150,28 +173,40 @@ class WebMHandler(BaseHandler):
             os.rmdir(tmp_dir)
         except OSError:
             pass
-    
+
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
+        """
+        从 WebM 文件提取水印
+
+        从第一帧的 Blue 通道 LSB 读取水印数据，查找同步头后解码。
+
+        Args:
+            file_path (str): WebM 文件路径
+            **kwargs: 其他参数
+
+        Returns:
+            ExtractResult: 提取结果
+        """
         logger.info(f"WebM extract: {file_path}")
-        
+
         try:
             import imageio
             reader = imageio.get_reader(file_path)
-            
+
             first_frame = None
             for frame in reader:
                 first_frame = frame.copy()
                 break
             reader.close()
-            
+
             if first_frame is None:
                 return ExtractResult(status=WatermarkStatus.EXTRACTION_FAILED, message="视频无帧数据", file_path=file_path)
-            
+
             # Extract from Blue channel LSB
             h, w = first_frame.shape[0], first_frame.shape[1]
             bits = []
             max_bits = min(h * w, 50000)
-            
+
             for i in range(h):
                 for j in range(w):
                     if len(bits) >= max_bits:
@@ -179,43 +214,56 @@ class WebMHandler(BaseHandler):
                     bits.append(first_frame[i, j, 2] & 1)
                 if len(bits) >= max_bits:
                     break
-            
+
             bit_str = ''.join(str(b) for b in bits)
-            
+
             # Find sync header
             sync_bits = '10101010101010101010101010101010'
             sync_pos = bit_str.find(sync_bits)
-            
+
             if sync_pos == -1:
                 sync_bits = '1010101010101010'
                 sync_pos = bit_str.find(sync_bits)
                 if sync_pos == -1:
                     return ExtractResult(status=WatermarkStatus.EXTRACTION_FAILED, message="未找到同步头", file_path=file_path)
-            
+
             data_start = sync_pos + len(sync_bits)
             data_bits = bit_str[data_start:]
-            
+
             data_bytes = bytearray()
             for i in range(0, len(data_bits) - 7, 8):
                 byte_val = 0
                 for j in range(8):
                     byte_val = (byte_val << 1) | int(data_bits[i + j])
                 data_bytes.append(byte_val)
-            
+
             success, content, details = self.codec.decode(bytes(data_bytes))
             if success:
+                logger.info(f"WebM extract success: {content[:30]}...")
                 return ExtractResult(
                     status=WatermarkStatus.SUCCESS,
                     watermark=WatermarkData(content=content),
                     file_path=file_path
                 )
             return ExtractResult(status=WatermarkStatus.EXTRACTION_FAILED, message=f"解码失败: {details.get('error', '未知')}", file_path=file_path)
-            
+
         except Exception as e:
             logger.error(f"WebM extract failed: {e}")
             return ExtractResult(status=WatermarkStatus.EXTRACTION_FAILED, message=str(e), file_path=file_path)
-    
+
     def verify(self, file_path, original_watermark, **kwargs):
+        """
+        验证 WebM 水印
+
+        Args:
+            file_path: 含水印文件路径
+            original_watermark: 原始水印数据
+
+        Returns:
+            VerifyResult: 验证结果
+        """
+        logger.info(f"WebM verify: {file_path}")
+
         result = self.extract(file_path)
         if result.status == WatermarkStatus.SUCCESS and result.watermark:
             is_valid = result.watermark.content == original_watermark.content

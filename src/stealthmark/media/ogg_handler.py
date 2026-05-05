@@ -1,3 +1,21 @@
+"""
+OGG Vorbis 音频水印处理器
+
+OGG 是一种开放容器格式，通常与 Vorbis 编解码器配合使用（OGG Vorbis）。
+本模块使用 Vorbis Comment（元数据标签）实现水印嵌入与提取。
+
+技术方案:
+    - 嵌入: 将水印内容编码后转为十六进制字符串，写入 'STEALTHMARK' 标签
+    - 提取: 读取 'STEALTHMARK' 标签，十六进制解码后送入 codec 解码
+    - 同步: 使用固定前缀标记数据起始位置
+
+依赖:
+    - mutagen: OGG Vorbis 元数据读写
+
+Author: StealthMark Team
+Date: 2026-04-28
+"""
+
 import logging
 import os
 from ..core.base import BaseHandler, WatermarkData, WatermarkStatus, EmbedResult, ExtractResult, VerifyResult
@@ -30,12 +48,21 @@ class OGGHandler(BaseHandler):
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
         logger.debug("OGGHandler initialized")
-    
+
     def embed(self, file_path, watermark, output_path, **kwargs):
         """
         嵌入水印到 OGG 文件
 
         将编码后的水印以十六进制字符串形式写入 Vorbis Comment 的 'STEALTHMARK' 字段。
+
+        Args:
+            file_path (str): 源 OGG 文件路径
+            watermark (WatermarkData): 水印数据
+            output_path (str): 输出文件路径
+            **kwargs: 其他参数
+
+        Returns:
+            EmbedResult: 嵌入结果
         """
         logger.info(f"OGG embed: {file_path} -> {output_path}")
 
@@ -73,12 +100,19 @@ class OGGHandler(BaseHandler):
                 file_path=file_path,
                 output_path=output_path
             )
-    
+
     def extract(self, file_path, **kwargs):
         """
         从 OGG 文件提取水印
 
         读取 Vorbis Comment 的 'STEALTHMARK' 字段，十六进制解码后送入 codec 解码。
+
+        Args:
+            file_path (str): OGG 文件路径
+            **kwargs: 其他参数
+
+        Returns:
+            ExtractResult: 提取结果
         """
         logger.info(f"OGG extract: {file_path}")
 
@@ -125,7 +159,7 @@ class OGGHandler(BaseHandler):
                 message=f'OGG extract failed: {str(e)}',
                 file_path=file_path
             )
-    
+
     def verify(self, file_path, watermark, **kwargs):
         """
         验证 OGG 水印
