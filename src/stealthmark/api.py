@@ -13,9 +13,14 @@ from pathlib import Path
 from typing import Optional, List
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import FileResponse, HTMLResponse
+from starlette.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from .core.manager import StealthMark
 from .core.base import WatermarkStatus
@@ -29,6 +34,20 @@ app = FastAPI(
     description="隐式水印工具 - Web API",
     version=__version__,
 )
+
+# CORS for cross-origin requests (needed for JavaScript clients)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict to specific domains
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Rate limiter: default 100 requests/minute per IP
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Mount static files for test frontend
 _static_dir = Path(__file__).resolve().parent / "static"
@@ -458,7 +477,8 @@ async def save_upload(file: UploadFile, suffix: str = "") -> str:
 # ==================== Endpoints ====================
 
 @app.get("/")
-async def root():
+@limiter.limit("200/minute")
+async def root(request: Request):
     return {
         "name": "StealthMark API",
         "version": __version__,
@@ -469,7 +489,8 @@ async def root():
 
 
 @app.get("/health")
-async def health():
+@limiter.limit("200/minute")
+async def health(request: Request):
     return {
         "status": "ok",
         "handlers": len(sm._handler_registry),
@@ -606,7 +627,9 @@ async def generate_watermark(req: GenerateWatermarkRequest):
 # ==================== Embed/Extract/Verify Endpoints ====================
 
 @app.post("/embed", response_model=EmbedResponse)
+@limiter.limit("30/minute")
 async def embed_api(
+    request: Request,
     file: UploadFile = File(...),
     watermark: str = Form(...),
     password: Optional[str] = Form(None),
@@ -665,7 +688,9 @@ async def embed_api(
 
 
 @app.post("/extract", response_model=ExtractResponse)
+@limiter.limit("30/minute")
 async def extract_api(
+    request: Request,
     file: UploadFile = File(...),
     password: Optional[str] = Form(None),
 ):

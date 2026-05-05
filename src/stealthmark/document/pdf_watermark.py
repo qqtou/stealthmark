@@ -44,6 +44,11 @@ except ImportError:
     PdfReader = None
     PdfWriter = None
 
+try:
+    from PyPDF2.errors import FileNotDecryptedError
+except ImportError:
+    FileNotDecryptedError = type("FileNotDecryptedError", (Exception), {})
+
 from ..core.base import (
     BaseHandler, WatermarkData, WatermarkStatus,
     EmbedResult, ExtractResult, VerifyResult
@@ -216,10 +221,35 @@ class PDFHandler(BaseHandler):
         try:
             # 读取 PDF
             reader = PdfReader(file_path)
-            
+
             # 获取密码参数
             password = kwargs.get('password')
-            
+
+            # 密码验证
+            if reader.is_encrypted:
+                if not password:
+                    logger.warning("PDF is encrypted, password required")
+                    return ExtractResult(
+                        status=WatermarkStatus.EXTRACTION_FAILED,
+                        message="PDF已加密，需要提供密码",
+                        file_path=file_path
+                    )
+                try:
+                    if not reader.decrypt(password):
+                        logger.warning(f"Wrong password for PDF: {file_path}")
+                        return ExtractResult(
+                            status=WatermarkStatus.EXTRACTION_FAILED,
+                            message="密码错误",
+                            file_path=file_path
+                        )
+                except FileNotDecryptedError:
+                    logger.warning(f"FileNotDecryptedError: {file_path}")
+                    return ExtractResult(
+                        status=WatermarkStatus.EXTRACTION_FAILED,
+                        message="密码错误或文件已加密",
+                        file_path=file_path
+                    )
+
             # 检查元数据
             if not reader.metadata:
                 logger.warning("PDF has no metadata")
