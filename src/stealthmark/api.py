@@ -1,6 +1,9 @@
 import os
+import json
 import uuid
 import time
+import re
+import secrets
 import shutil
 import threading
 import tempfile
@@ -289,6 +292,7 @@ class ExtractResponse(BaseModel):
     watermark: Optional[str] = None
     format: str
     message: str
+    parsed: Optional[dict] = None  # Parsed watermark JSON fields (if valid format)
 
 
 class VerifyResponse(BaseModel):
@@ -315,6 +319,23 @@ class BatchResponse(BaseModel):
     results: List[BatchFileResult]
 
 
+class WatermarkValidationResponse(BaseModel):
+    valid: bool
+    errors: List[str]
+    data: Optional[dict] = None
+
+
+class GenerateWatermarkRequest(BaseModel):
+    type: str = "watermark"
+    issuer: str
+    payload: Optional[str] = None
+
+
+class GenerateWatermarkResponse(BaseModel):
+    watermark: str
+    data: dict
+
+
 class InfoResponse(BaseModel):
     handlers: int
     formats: dict
@@ -329,6 +350,98 @@ SUPPORTED_CATEGORIES = {
 
 # Test template files directory
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
+
+
+# ==================== Watermark Format Validation ====================
+
+WATERMARK_TYPES = {"copyright", "provenance", "watermark", "brand", "tracking"}
+
+ISSUER_PATTERN = re.compile(
+    r"^(did:[a-z0-9]+:[a-zA-Z0-9._-]+"
+    r"|[a-zA-Z][a-zA-Z0-9+.-]*:[^\s]+"
+    r"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+)
+
+TIMESTAMP_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
+)
+
+NONCE_PATTERN = re.compile(r"^[0-9a-fA-F]{16,32}$")
+
+
+def _validate_watermark_json(watermark_str: str) -> dict:
+    """Validate watermark JSON against StealthMark format spec.
+
+    Returns:
+        {"valid": bool, "errors": [str], "data": dict|None}
+    """
+    errors = []
+    data = None
+
+    try:
+        data = json.loads(watermark_str)
+    except json.JSONDecodeError as e:
+        return {"valid": False, "errors": [f"Invalid JSON: {e}"], "data": None}
+
+    if not isinstance(data, dict):
+        return {"valid": False, "errors": ["Watermark must be a JSON object"], "data": None}
+
+    # Required fields
+    for field in ("v", "type", "issuer", "timestamp", "nonce"):
+        if field not in data:
+            errors.append(f"Missing required field: {field}")
+
+    if errors:
+        return {"valid": False, "errors": errors, "data": data}
+
+    # v: integer 1-99
+    if not isinstance(data["v"], int) or isinstance(data["v"], bool):
+        errors.append("Field 'v' must be an integer")
+    elif not (1 <= data["v"] <= 99):
+        errors.append("Field 'v' must be between 1 and 99")
+
+    # type: enum
+    if not isinstance(data["type"], str):
+        errors.append("Field 'type' must be a string")
+    elif data["type"] not in WATERMARK_TYPES:
+        errors.append(f"Field 'type' must be one of: {', '.join(sorted(WATERMARK_TYPES))}")
+
+    # issuer: DID/URI/UUID
+    if not isinstance(data["issuer"], str):
+        errors.append("Field 'issuer' must be a string")
+    elif not ISSUER_PATTERN.match(data["issuer"]):
+        errors.append("Field 'issuer' must be a DID, URI, or UUID")
+    elif len(data["issuer"]) > 256:
+        errors.append("Field 'issuer' must be at most 256 characters")
+
+    # timestamp: ISO 8601
+    if not isinstance(data["timestamp"], str):
+        errors.append("Field 'timestamp' must be a string")
+    elif not TIMESTAMP_PATTERN.match(data["timestamp"]):
+        errors.append("Field 'timestamp' must be ISO 8601 format (e.g., 2026-05-05T10:30:00Z)")
+
+    # nonce: hex 16-32 chars
+    if not isinstance(data["nonce"], str):
+        errors.append("Field 'nonce' must be a string")
+    elif not NONCE_PATTERN.match(data["nonce"]):
+        errors.append("Field 'nonce' must be 16-32 hex characters (e.g., a1b2c3d4e5f67890)")
+
+    # payload: optional, validate constraints
+    if "payload" in data:
+        p = data["payload"]
+        if isinstance(p, str) and len(p) > 1024:
+            errors.append("Field 'payload' (string) must be at most 1024 characters")
+        elif isinstance(p, dict) and len(p) > 20:
+            errors.append("Field 'payload' (object) must have at most 20 properties")
+        elif isinstance(p, list) and len(p) > 100:
+            errors.append("Field 'payload' (array) must have at most 100 items")
+
+    return {"valid": len(errors) == 0, "errors": errors, "data": data}
+
+
+def _generate_nonce() -> str:
+    """Generate a random 16-byte hex nonce."""
+    return secrets.token_hex(8)
 
 
 async def save_upload(file: UploadFile, suffix: str = "") -> str:
@@ -447,6 +560,49 @@ async def get_output_file(file_id: str):
     )
 
 
+# ==================== Watermark Format Endpoints ====================
+
+
+@app.post("/validate", response_model=WatermarkValidationResponse)
+async def validate_watermark(watermark: str = Form(...)):
+    """Validate a watermark JSON string against the StealthMark format spec.
+
+    Use this to check watermark format before embedding.
+    """
+    result = _validate_watermark_json(watermark)
+    return WatermarkValidationResponse(**result)
+
+
+@app.post("/watermark/generate", response_model=GenerateWatermarkResponse)
+async def generate_watermark(req: GenerateWatermarkRequest):
+    """Generate a properly formatted watermark JSON.
+
+    Auto-generates timestamp and nonce.
+    """
+    if req.type not in WATERMARK_TYPES:
+        raise HTTPException(400, f"type must be one of: {', '.join(sorted(WATERMARK_TYPES))}")
+
+    data = {
+        "v": 1,
+        "type": req.type,
+        "issuer": req.issuer,
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "nonce": _generate_nonce(),
+    }
+    if req.payload is not None:
+        data["payload"] = req.payload
+
+    # Validate before returning
+    validation = _validate_watermark_json(json.dumps(data))
+    if not validation["valid"]:
+        raise HTTPException(500, f"Internal error: generated watermark is invalid: {validation['errors']}")
+
+    return GenerateWatermarkResponse(
+        watermark=json.dumps(data, separators=(",", ":")),
+        data=data,
+    )
+
+
 # ==================== Embed/Extract/Verify Endpoints ====================
 
 @app.post("/embed", response_model=EmbedResponse)
@@ -460,9 +616,18 @@ async def embed_api(
 
     Args:
         permanent: If True, file is stored permanently (not auto-deleted after retention period).
+        watermark: Watermark string. If it looks like JSON, will be validated against the format spec.
     """
     if not watermark:
         raise HTTPException(400, "watermark is required")
+
+    # If watermark looks like JSON, validate against format spec
+    stripped = watermark.strip()
+    if stripped.startswith("{"):
+        validation = _validate_watermark_json(stripped)
+        if not validation["valid"]:
+            raise HTTPException(400, f"Invalid watermark format: {'; '.join(validation['errors'])}")
+        watermark = stripped  # Use cleaned-up version
 
     suffix = Path(file.filename or "").suffix
     input_path = await save_upload(file, suffix)
@@ -510,11 +675,20 @@ async def extract_api(
     try:
         result = sm.extract(input_path, password=password)
         if result.is_success and result.watermark:
+            wm_str = result.watermark.content
+            parsed = None
+            # Try to parse as structured watermark JSON
+            wm_stripped = wm_str.strip()
+            if wm_stripped.startswith("{"):
+                validation = _validate_watermark_json(wm_stripped)
+                if validation["valid"]:
+                    parsed = validation["data"]
             return ExtractResponse(
                 success=True,
-                watermark=result.watermark.content,
+                watermark=wm_str,
                 format=suffix,
                 message="提取成功",
+                parsed=parsed,
             )
         else:
             return ExtractResponse(
