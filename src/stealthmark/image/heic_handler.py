@@ -114,6 +114,11 @@ class HEICHandler(BaseHandler):
     HANDLER_NAME = "heic"
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化HEIC处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
 
@@ -128,6 +133,19 @@ class HEICHandler(BaseHandler):
 
     def embed(self, file_path: str, watermark: WatermarkData,
               output_path: str, **kwargs) -> EmbedResult:
+        """嵌入水印到HEIC文件。
+
+        将水印编码后写入EXIF UserComment标签 (tag 0x9286)，
+        通过 Pillow 的 exif= 参数保存到 HEIF 文件。
+
+        Args:
+            file_path: 源HEIC文件路径。
+            watermark: 水印数据对象。
+            output_path: 输出HEIC文件路径。
+
+        Returns:
+            EmbedResult: 嵌入结果。
+        """
         logger.info(f"HEIC embed: {file_path} -> {output_path}")
 
         if not self._check_heif_support():
@@ -184,6 +202,16 @@ class HEICHandler(BaseHandler):
             )
 
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
+        """从HEIC文件提取水印。
+
+        读取EXIF UserComment标签，解码Base64水印数据。
+
+        Args:
+            file_path: HEIC文件路径。
+
+        Returns:
+            ExtractResult: 提取结果。
+        """
         logger.info(f"HEIC extract: {file_path}")
 
         if not self._check_heif_support():
@@ -258,6 +286,7 @@ class HEICHandler(BaseHandler):
 
     def verify(self, file_path: str, original_watermark: WatermarkData,
                **kwargs) -> VerifyResult:
+        """验证HEIC文件水印是否匹配。"""
         extract_result = self.extract(file_path)
         if not extract_result.is_success or not extract_result.watermark:
             return VerifyResult(

@@ -39,6 +39,11 @@ class EPUBHandler(BaseHandler):
     WATERMARK_META_NAME = "SMMark"
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化EPUB处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
     
@@ -60,6 +65,18 @@ class EPUBHandler(BaseHandler):
     
     def embed(self, file_path: str, watermark: WatermarkData,
               output_path: str, **kwargs) -> EmbedResult:
+        """嵌入水印到EPUB文件。
+
+        在OPF元数据中添加 <meta name="SMMark"> 标签，Base64编码存储。
+
+        Args:
+            file_path: 源EPUB文件路径。
+            watermark: 水印数据对象。
+            output_path: 输出EPUB文件路径。
+
+        Returns:
+            EmbedResult: 嵌入结果。
+        """
         logger.info(f"EPUB embed: {file_path} -> {output_path}")
         
         error_result = self._validate_file(file_path)
@@ -162,6 +179,16 @@ class EPUBHandler(BaseHandler):
             )
     
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
+        """从EPUB文件提取水印。
+
+        读取OPF元数据中的SMMark标签并解码。
+
+        Args:
+            file_path: EPUB文件路径。
+
+        Returns:
+            ExtractResult: 提取结果，包含水印内容。
+        """
         logger.info(f"EPUB extract: {file_path}")
         
         error_result = self._validate_file(file_path)
@@ -213,6 +240,15 @@ class EPUBHandler(BaseHandler):
             )
     
     def verify(self, file_path, original_watermark, **kwargs):
+        """验证EPUB文件水印是否匹配。
+
+        Args:
+            file_path: EPUB文件路径。
+            original_watermark: 原始水印数据，用于比对。
+
+        Returns:
+            VerifyResult: 验证结果。
+        """
         extract_result = self.extract(file_path)
         if not extract_result.is_success or not extract_result.watermark:
             return VerifyResult(

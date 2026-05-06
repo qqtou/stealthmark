@@ -55,6 +55,11 @@ class TIFFHandler(BaseHandler):
     HANDLER_NAME = "tiff"
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化TIFF处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
         logger.debug("TIFFHandler initialized")
@@ -205,6 +210,11 @@ class WebPHandler(BaseHandler):
     HANDLER_NAME = "webp"
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化WebP处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
         logger.debug("WebPHandler initialized")
@@ -360,6 +370,11 @@ class GIFHandler(BaseHandler):
     TRAILER = 0x3B      # GIF Trailer
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化GIF处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
         logger.debug("GIFHandler initialized")

@@ -43,11 +43,28 @@ class ODHandler(BaseHandler):
     WATERMARK_META_NAME = "SMMark"
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化ODF处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
     
     def _embed_odf(self, file_path: str, watermark: WatermarkData,
                    output_path: str) -> EmbedResult:
+        """嵌入水印到ODF文件（ODT/ODS/ODP通用实现）。
+
+        在meta.xml中添加 <meta:user-defined name="SMMark"> 元素。
+
+        Args:
+            file_path: 源ODF文件路径。
+            watermark: 水印数据对象。
+            output_path: 输出文件路径。
+
+        Returns:
+            EmbedResult: 嵌入结果。
+        """
         logger.info(f"ODF embed: {file_path} -> {output_path}")
         
         error_result = self._validate_file(file_path)
@@ -130,6 +147,16 @@ class ODHandler(BaseHandler):
             )
     
     def _extract_odf(self, file_path: str) -> ExtractResult:
+        """从ODF文件提取水印。
+
+        读取meta.xml中SMMark用户自定义元数据并解码。
+
+        Args:
+            file_path: ODF文件路径。
+
+        Returns:
+            ExtractResult: 提取结果。
+        """
         logger.info(f"ODF extract: {file_path}")
         
         error_result = self._validate_file(file_path)
@@ -180,12 +207,15 @@ class ODHandler(BaseHandler):
             )
     
     def embed(self, file_path, watermark, output_path, **kwargs):
+        """嵌入水印（委托至 _embed_odf）。"""
         return self._embed_odf(file_path, watermark, output_path)
     
     def extract(self, file_path, **kwargs):
+        """提取水印（委托至 _extract_odf）。"""
         return self._extract_odf(file_path)
     
     def verify(self, file_path, original_watermark, **kwargs):
+        """验证ODF文件水印是否匹配。"""
         extract_result = self.extract(file_path)
         if not extract_result.is_success or not extract_result.watermark:
             return VerifyResult(

@@ -41,6 +41,11 @@ class WebMHandler(BaseHandler):
     SYNC_PATTERN = bytes([0xAA] * 4)
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化WebM处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
         self.ffmpeg_path = get_ffmpeg_path()

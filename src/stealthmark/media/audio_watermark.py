@@ -494,11 +494,17 @@ class MP3Handler(BaseHandler):
     MAGIC_PREFIX = 'SMARK:'
 
     def __init__(self, config=None):
+        """初始化MP3处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
         self._id3_module = None
 
     def _get_id3(self):
+        """延迟加载 mutagen.id3 模块。"""
         if self._id3_module is None:
             try:
                 import mutagen.id3
@@ -553,6 +559,18 @@ class MP3Handler(BaseHandler):
 
 
     def embed(self, file_path, watermark, output_path, **kwargs):
+        """嵌入水印到MP3文件。
+
+        先复制文件，再将水印编码写入ID3 TXXX帧（description='StealthMark'）。
+
+        Args:
+            file_path: 源MP3文件路径。
+            watermark: 水印数据对象。
+            output_path: 输出MP3文件路径。
+
+        Returns:
+            EmbedResult: 嵌入结果。
+        """
         import shutil, os
 
         # Copy to output first
@@ -576,6 +594,16 @@ class MP3Handler(BaseHandler):
         )
 
     def extract(self, file_path, **kwargs):
+        """从MP3文件提取水印。
+
+        读取ID3 TXXX帧（description='StealthMark'），十六进制解码后送入codec解码。
+
+        Args:
+            file_path: MP3文件路径。
+
+        Returns:
+            ExtractResult: 提取结果。
+        """
         # Try to read watermark from ID3
         encoded = self._read_id3_comment(file_path)
         if not encoded:
@@ -605,6 +633,7 @@ class MP3Handler(BaseHandler):
         )
 
     def verify(self, file_path, watermark, **kwargs):
+        """验证MP3文件水印是否匹配。"""
         result = self.extract(file_path, **kwargs)
         if result.is_success:
             match = result.watermark.content == watermark.content

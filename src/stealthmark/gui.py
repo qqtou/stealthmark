@@ -68,6 +68,17 @@ class WatermarkWorker(QThread):
         filename_pattern: str,
         overwrite: bool,
     ):
+        """初始化水印工作线程。
+
+        Args:
+            files: 待处理文件路径列表。
+            action: 操作类型（'embed'/'extract'/'verify'）。
+            watermark: 水印文本内容。
+            password: 加密密码（可选）。
+            output_dir: 输出目录。
+            filename_pattern: 输出文件名模式。
+            overwrite: 是否覆盖已有文件。
+        """
         super().__init__()
         self.files = files
         self.action = action
@@ -181,6 +192,7 @@ class MainWindow(QWidget):
     """
 
     def __init__(self):
+        """初始化主窗口，构建UI布局并连接信号槽。"""
         logger.debug("MainWindow.__init__ called")
         super().__init__()
         self._files: List[str] = []

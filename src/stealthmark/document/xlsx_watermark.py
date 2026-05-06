@@ -45,11 +45,29 @@ class XLSXHandler(BaseHandler):
     WATERMARK_PROP_NAME = "SMMark"
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化XLSX处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
     
     def embed(self, file_path: str, watermark: WatermarkData,
               output_path: str, **kwargs) -> EmbedResult:
+        """嵌入水印到XLSX文件。
+
+        在docProps/custom.xml中添加SMMark自定义属性，
+        Base64编码存储，不修改任何单元格内容。
+
+        Args:
+            file_path: 源XLSX文件路径。
+            watermark: 水印数据对象。
+            output_path: 输出XLSX文件路径。
+
+        Returns:
+            EmbedResult: 嵌入结果。
+        """
         logger.info(f"XLSX embed: {file_path} -> {output_path}")
         
         error_result = self._validate_file(file_path)
@@ -172,6 +190,16 @@ class XLSXHandler(BaseHandler):
             )
     
     def extract(self, file_path: str, **kwargs) -> ExtractResult:
+        """从XLSX文件提取水印。
+
+        依次检查custom.xml和core.xml中的SMMark属性。
+
+        Args:
+            file_path: XLSX文件路径。
+
+        Returns:
+            ExtractResult: 提取结果。
+        """
         logger.info(f"XLSX extract: {file_path}")
         
         error_result = self._validate_file(file_path)
@@ -237,6 +265,15 @@ class XLSXHandler(BaseHandler):
     
     def verify(self, file_path: str, original_watermark: WatermarkData,
                **kwargs) -> VerifyResult:
+        """验证XLSX文件水印是否匹配。
+
+        Args:
+            file_path: XLSX文件路径。
+            original_watermark: 原始水印数据。
+
+        Returns:
+            VerifyResult: 验证结果。
+        """
         extract_result = self.extract(file_path)
         if not extract_result.is_success or not extract_result.watermark:
             return VerifyResult(

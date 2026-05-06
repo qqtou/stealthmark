@@ -31,6 +31,7 @@ except ImportError:
 
 if not _HAS_COLORAMA:
     class _DummyColor:
+        """colorama不可用时的空壳替代，所有属性为空字符串。"""
         RESET = BRIGHT = DIM = RED = GREEN = YELLOW = CYAN = MAGENTA = WHITE = ''
     Fore = Style = _DummyColor()
 
@@ -203,6 +204,7 @@ def cmd_info(args):
     print(f'StealthMark - {len(formats)} supported formats\n')
 
     def show_group(title, items):
+        """打印格式分组标题和列表。"""
         print(_color(title, _C.CYAN + _S.BRIGHT))
         for ext in sorted(items):
             print(f'  {ext}')
@@ -451,6 +453,7 @@ def cmd_batch(args):
 # ==================== 辅助函数 ====================
 
 def _confirm_overwrite(path):
+    """交互式确认覆盖已有文件。非交互环境返回False。"""
     name = Path(path).name
     try:
         resp = input(f'File exists: {name}. Overwrite? [y/N] ').strip().lower()
@@ -460,12 +463,14 @@ def _confirm_overwrite(path):
 
 
 def _show_traceback(result):
+    """打印错误结果的状态和消息详情。"""
     print(f'\n{_C.RED}--- Error Details ---{_S.RESET_ALL}')
     print(f'  Status: {result.status}')
     print(f'  Message: {result.message}')
 
 
 def _show_handler_hint(suffix):
+    """根据文件后缀显示handler使用提示。"""
     hints = {
         '.pdf':  'PDF files embed watermark in metadata. Ensure file is not scanned.',
         '.docx': 'DOCX uses zero-width characters. Do not re-save as plain text.',

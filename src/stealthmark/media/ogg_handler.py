@@ -45,6 +45,11 @@ class OGGHandler(BaseHandler):
     HANDLER_NAME = 'ogg'
 
     def __init__(self, config=None):
+        """初始化OGG处理器。
+
+        Args:
+            config: 可选配置字典，支持 'password' 键指定加密密码。
+        """
         super().__init__(config)
         self.codec = WatermarkCodec(password=self.config.get('password'))
         logger.debug("OGGHandler initialized")

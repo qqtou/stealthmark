@@ -27,6 +27,7 @@ class FLACHandler(WAVHandler):
     HANDLER_NAME = "flac"
 
     def __init__(self, config=None):
+        """初始化FLAC处理器（继承WAV处理器配置）。"""
         super().__init__(config)
         logger.debug("FLACHandler initialized")
 

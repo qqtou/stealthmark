@@ -325,6 +325,7 @@ file_store.start_cleanup()
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    """应用关闭时停止文件清理定时任务。"""
     file_store.stop_cleanup()
 
 
@@ -520,6 +521,7 @@ async def save_upload(file: UploadFile, suffix: str = "") -> str:
 @app.get("/")
 @limiter.limit("200/minute")
 async def root(request: Request):
+    """API根路径，返回服务基本信息。"""
     return {
         "name": "StealthMark API",
         "version": __version__,
@@ -532,6 +534,7 @@ async def root(request: Request):
 @app.get("/health")
 @limiter.limit("200/minute")
 async def health(request: Request):
+    """健康检查端点，返回服务状态和配置信息。"""
     return {
         "status": "ok",
         "handlers": len(sm._handler_registry),
@@ -542,6 +545,7 @@ async def health(request: Request):
 
 @app.get("/info", response_model=InfoResponse)
 async def info():
+    """返回支持的格式列表和当前已注册的handler信息。"""
     formats = {}
     all_exts = set(sm.supported_formats())
     for cat, exts in SUPPORTED_CATEGORIES.items():
@@ -735,6 +739,7 @@ async def extract_api(
     file: UploadFile = File(...),
     password: Optional[str] = Form(None),
 ):
+    """提取文件水印。上传含水印的文件，返回提取到的水印内容。"""
     suffix = Path(file.filename or "").suffix
     input_path = await save_upload(file, suffix)
 
@@ -775,6 +780,7 @@ async def verify_api(
     watermark: str = Form(...),
     password: Optional[str] = Form(None),
 ):
+    """验证文件水印。上传文件和原始水印文本，返回匹配结果。"""
     if not watermark:
         raise HTTPException(400, "watermark is required")
 
@@ -805,6 +811,7 @@ async def batch_api(
     password: Optional[str] = Form(None),
     permanent: bool = Form(False),
 ):
+    """批量处理端点。支持批量嵌入/提取/验证水印。"""
     if action not in ("embed", "extract", "verify"):
         raise HTTPException(400, "action must be 'embed', 'extract', or 'verify'")
 
