@@ -1,6 +1,6 @@
 # StealthMark
 
-> ⚠️ **AI-Generated Project** — 本项目由 AI（Claude / OpenClaw）参与设计与实现。
+> ⚠️ **AI-Generated Project** — 本项目由 QClaw（基于 Claude + OpenClaw）设计与实现。
 
 隐形数字水印工具。为 PDFs、Word、PowerPoint、图片、音视频添加人不可见的隐形水印，用于版权保护、溯源、文件鉴权。
 
